@@ -2,8 +2,15 @@
 
 import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X, Monitor, Maximize2, Minimize2, RotateCcw } from "lucide-react"
+import { X, Monitor, Maximize2, Minimize2, RotateCcw, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+
+interface Tab {
+  id: string
+  title: string
+  url: string
+  isActive: boolean
+}
 
 interface ComputerUseAgentProps {
   isVisible: boolean
@@ -13,6 +20,11 @@ interface ComputerUseAgentProps {
   isMobile?: boolean
   isLoading?: boolean
   error?: string | null
+  tabs?: Tab[]
+  activeTabId?: string
+  onNewTab?: () => void
+  onCloseTab?: (tabId: string) => void
+  onSwitchTab?: (tabId: string) => void
 }
 
 export function ComputerUseAgent({
@@ -23,6 +35,11 @@ export function ComputerUseAgent({
   isMobile = false,
   isLoading = false,
   error = null,
+  tabs = [],
+  activeTabId,
+  onNewTab,
+  onCloseTab,
+  onSwitchTab,
 }: ComputerUseAgentProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -104,6 +121,50 @@ export function ComputerUseAgent({
                 </Button>
               </div>
             </div>
+
+            {/* Tab Bar */}
+            {tabs.length > 0 && (
+              <div className="flex items-center bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-2 py-1 overflow-x-auto">
+                <div className="flex items-center gap-1 min-w-0 flex-1">
+                  {tabs.map((tab) => (
+                    <div
+                      key={tab.id}
+                      className={`
+                        flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer min-w-0 max-w-[200px] group
+                        ${tab.isActive || tab.id === activeTabId
+                          ? 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }
+                      `}
+                      onClick={() => onSwitchTab?.(tab.id)}
+                    >
+                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
+                        {tab.title || 'New Tab'}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-4 h-4 p-0 opacity-0 group-hover:opacity-100 hover:bg-gray-200 dark:hover:bg-gray-600"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onCloseTab?.(tab.id)
+                        }}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-8 h-8 flex-shrink-0 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  onClick={onNewTab}
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
 
             {/* Browser Content - NO PADDING */}
             <div className="flex-1 bg-white dark:bg-black">

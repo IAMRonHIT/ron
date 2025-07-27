@@ -16,9 +16,12 @@ Laminar.initialize()
 
 from browser_use import Agent
 
-from browser_use.llm import ChatAnthropic
+from browser_use.llm import ChatOpenAI
 
-llm = ChatAnthropic(model='claude-4-sonnet-20250514', temperature=0.0)
+openai_api_key = os.getenv('OPENAI_API_KEY')
+if not openai_api_key:
+	raise ValueError("OPENAI_API_KEY environment variable is required")
+llm = ChatOpenAI(model='gpt-4.1', api_key=openai_api_key, temperature=0.0)
 
 agent = Agent(
 

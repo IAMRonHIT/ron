@@ -396,7 +396,7 @@ class BrowserUseService:
         
         try:
             from browser_use import Agent
-            from browser_use.llm import ChatAnthropic
+            from browser_use.llm import ChatOpenAI
             
             browser_session = self.active_sessions[session_id]
             metadata = self.session_metadata[session_id]
@@ -411,13 +411,13 @@ class BrowserUseService:
                 raise ValueError(f"Browser session is not available: {str(e)}")
             
             # Create LLM instance with proper API key check
-            anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
-            if not anthropic_api_key:
-                raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+            openai_api_key = os.getenv('OPENAI_API_KEY')
+            if not openai_api_key:
+                raise ValueError("OPENAI_API_KEY environment variable is required")
                 
-            llm = ChatAnthropic(
-                model="claude-sonnet-4-20250514",
-                api_key=anthropic_api_key
+            llm = ChatOpenAI(
+                model="gpt-4.1",
+                api_key=openai_api_key
             )
             
             # Create agent with the existing browser session

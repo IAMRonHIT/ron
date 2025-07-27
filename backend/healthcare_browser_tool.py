@@ -9,7 +9,7 @@ import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 from browser_use import Agent, BrowserSession, BrowserProfile
-from browser_use.llm import ChatAnthropic
+from browser_use.llm import ChatOpenAI
 
 
 class BrowserlessHealthcareTool:
@@ -216,9 +216,12 @@ async def execute_healthcare_browser_task(
 			result_data["human_session_completed"] = True
 		else:
 			# Run agent automation
+			openai_api_key = os.getenv('OPENAI_API_KEY')
+			if not openai_api_key:
+				raise ValueError("OPENAI_API_KEY environment variable is required")
 			agent = Agent(
 				task=task_description,
-				llm=ChatAnthropic(model="claude-sonnet-4-20250514"),
+				llm=ChatOpenAI(model="gpt-4.1", api_key=openai_api_key),
 				browser_session=browser_session
 			)
 			

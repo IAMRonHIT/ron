@@ -16,7 +16,7 @@ from datetime import datetime
 import tempfile
 import shutil
 from browser_use import Agent, BrowserSession, BrowserProfile
-from browser_use.llm import ChatAnthropic
+from browser_use.llm import ChatOpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -61,7 +61,7 @@ try:
     from deep_research_agent import root_agent as deep_research_root_agent
     from google.adk.runners import InMemoryRunner
     from google.adk.agents import RunConfig
-    from google.adk.live_request_queue import LiveRequestQueue
+    from google.adk.agents import LiveRequestQueue
     from google.genai import types as genai_types
     DEEP_RESEARCH_AVAILABLE = True
 except ImportError as e:
@@ -246,7 +246,10 @@ async def create_browser_agent(task: str, session_id: str):
 		cdp_url=f"wss://production-sfo.browserless.io/chrome/stealth?token={browserless_token}",
 		browser_profile=profile,
 	)
-	llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+	openai_api_key = os.getenv('OPENAI_API_KEY')
+	if not openai_api_key:
+		raise ValueError("OPENAI_API_KEY environment variable is required")
+	llm = ChatOpenAI(model="gpt-4.1", api_key=openai_api_key)
 	agent = Agent(
 		task=task,
 		llm=llm,
@@ -329,7 +332,10 @@ async def run_browser_use_agent(task: str):
 			"and other web-based workflows. If you encounter a CAPTCHA or a complex form, wait for human input if needed."
 		)
 
-		model = ChatAnthropic(model='claude-sonnet-4-20250514')
+		openai_api_key = os.getenv('OPENAI_API_KEY')
+		if not openai_api_key:
+			raise ValueError("OPENAI_API_KEY environment variable is required")
+		model = ChatOpenAI(model='gpt-4.1', api_key=openai_api_key)
 
 		# Explicitly enable stealth mode
 		profile = BrowserProfile(

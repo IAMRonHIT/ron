@@ -19,7 +19,7 @@ async def browser_use(task: str, session_id: str = None) -> Dict[str, Any]:
     """
     try:
         from browser_use import Agent, BrowserSession, BrowserProfile
-        from browser_use.llm import ChatAnthropic
+        from browser_use.llm import ChatOpenAI
         
         # Generate session_id if not provided
         if not session_id:
@@ -46,7 +46,10 @@ async def browser_use(task: str, session_id: str = None) -> Dict[str, Any]:
         )
         
         # Create agent with the task
-        llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+        openai_api_key = os.getenv('OPENAI_API_KEY')
+        if not openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+        llm = ChatOpenAI(model="gpt-4.1", api_key=openai_api_key)
         agent = Agent(
             task=task,
             llm=llm,

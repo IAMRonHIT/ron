@@ -20,7 +20,7 @@ export function useComputerAgent() {
   const startAgent = async (task: string, url?: string) => {
     try {
       // Call browser-use backend to create session with LiveURL
-      const response = await fetch('/api/browser-use/session/create-with-url', {
+      const response = await fetch('http://localhost:8000/browser-use/session/create-with-url', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -51,7 +51,7 @@ export function useComputerAgent() {
         console.log(`Executing browser task: ${task}`)
         
         try {
-          const taskResponse = await fetch(`/api/browser-use/session/${sessionId}/task`, {
+          const taskResponse = await fetch(`http://localhost:8000/browser-use/session/${sessionId}/task`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -87,7 +87,7 @@ export function useComputerAgent() {
     if (agentState.sessionId) {
       try {
         // Close browser session
-        await fetch(`/api/browser-use/session/${agentState.sessionId}/close`, {
+        await fetch(`http://localhost:8000/browser-use/session/${agentState.sessionId}/close`, {
           method: 'DELETE',
         })
       } catch (error) {
@@ -123,7 +123,7 @@ export function useComputerAgent() {
     }
 
     try {
-      const taskResponse = await fetch(`/api/browser-use/session/${agentState.sessionId}/task`, {
+      const taskResponse = await fetch(`http://localhost:8000/browser-use/session/${agentState.sessionId}/task`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
