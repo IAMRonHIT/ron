@@ -3,7 +3,7 @@ Tool handlers for Claude to use
 Based on the browser-use integration
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 import logging
 import asyncio
 from datetime import datetime
@@ -130,6 +130,183 @@ async def execute_code(code: str, language: str = "python") -> Dict[str, Any]:
     }
 
 
+# Perplexity tools
+async def perplexity_sonar_pro(query: str, search_filter: str = None, search_domain_filter: List[str] = None) -> Dict[str, Any]:
+    """Search using Perplexity Sonar Pro for complex multi-criteria analysis"""
+    import os
+    import aiohttp
+    
+    api_key = os.getenv('PERPLEXITY_API_KEY')
+    if not api_key:
+        return {"error": "PERPLEXITY_API_KEY not configured"}
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "sonar-pro",
+            "messages": [
+                {"role": "user", "content": query}
+            ],
+            "stream": False
+        }
+        
+        # Add optional search filters
+        if search_filter:
+            payload["search_filter"] = search_filter
+        if search_domain_filter:
+            payload["search_domain_filter"] = search_domain_filter
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return {
+                        "success": True,
+                        "result": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+                        "query": query,
+                        "model": "sonar-pro"
+                    }
+                else:
+                    error_text = await response.text()
+                    return {
+                        "success": False,
+                        "error": f"API error {response.status}: {error_text}",
+                        "query": query
+                    }
+                    
+    except Exception as e:
+        logger.error(f"Perplexity Sonar Pro error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query
+        }
+
+
+async def perplexity_reasoning_pro(query: str, search_filter: str = None, search_domain_filter: List[str] = None) -> Dict[str, Any]:
+    """Use Perplexity Reasoning Pro for complex reasoning and multi-criteria analysis"""
+    import os
+    import aiohttp
+    
+    api_key = os.getenv('PERPLEXITY_API_KEY')
+    if not api_key:
+        return {"error": "PERPLEXITY_API_KEY not configured"}
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "sonar-reasoning",
+            "messages": [
+                {"role": "user", "content": query}
+            ],
+            "stream": False
+        }
+        
+        # Add optional search filters
+        if search_filter:
+            payload["search_filter"] = search_filter
+        if search_domain_filter:
+            payload["search_domain_filter"] = search_domain_filter
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return {
+                        "success": True,
+                        "result": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+                        "query": query,
+                        "model": "sonar-reasoning"
+                    }
+                else:
+                    error_text = await response.text()
+                    return {
+                        "success": False,
+                        "error": f"API error {response.status}: {error_text}",
+                        "query": query
+                    }
+                    
+    except Exception as e:
+        logger.error(f"Perplexity Reasoning Pro error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query
+        }
+
+
+async def perplexity_deep_research(query: str, reasoning_effort: str = "high") -> Dict[str, Any]:
+    """Use Perplexity Deep Research for exhaustive single-topic research"""
+    import os
+    import aiohttp
+    
+    api_key = os.getenv('PERPLEXITY_API_KEY')
+    if not api_key:
+        return {"error": "PERPLEXITY_API_KEY not configured"}
+    
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "sonar-deep-research",
+            "messages": [
+                {"role": "user", "content": query}
+            ],
+            "stream": False,
+            "reasoning_effort": reasoning_effort  # "low", "medium", or "high"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers=headers,
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return {
+                        "success": True,
+                        "result": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+                        "query": query,
+                        "model": "sonar-deep-research",
+                        "reasoning_effort": reasoning_effort
+                    }
+                else:
+                    error_text = await response.text()
+                    return {
+                        "success": False,
+                        "error": f"API error {response.status}: {error_text}",
+                        "query": query
+                    }
+                    
+    except Exception as e:
+        logger.error(f"Perplexity Deep Research error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query
+        }
+
+
 # Tool registry
 TOOLS = {
     "browser_use": {
@@ -179,6 +356,65 @@ TOOLS = {
                 "description": "Programming language",
                 "required": False,
                 "default": "python"
+            }
+        }
+    },
+    "perplexity_sonar_pro": {
+        "function": perplexity_sonar_pro,
+        "description": "General Search Tool - Fast searches across multiple topics or sources with built-in citations",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "The search query",
+                "required": True
+            },
+            "search_filter": {
+                "type": "string",
+                "description": "Optional search filter: 'academic' for academic sources",
+                "required": False
+            },
+            "search_domain_filter": {
+                "type": "array",
+                "description": "Optional list of domains to search within (e.g., ['arxiv.org'])",
+                "required": False
+            }
+        }
+    },
+    "perplexity_reasoning_pro": {
+        "function": perplexity_reasoning_pro,
+        "description": "Multi-Criteria Analysis Tool - Complex searches requiring reasoning and evaluation of multiple aspects",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "The complex query requiring reasoning",
+                "required": True
+            },
+            "search_filter": {
+                "type": "string",
+                "description": "Optional search filter: 'academic' for academic sources",
+                "required": False
+            },
+            "search_domain_filter": {
+                "type": "array",
+                "description": "Optional list of domains to search within",
+                "required": False
+            }
+        }
+    },
+    "perplexity_deep_research": {
+        "function": perplexity_deep_research,
+        "description": "Deep Dive Tool - Exhaustive single-topic research requiring extensive documentation",
+        "parameters": {
+            "query": {
+                "type": "string",
+                "description": "The specific topic for deep research",
+                "required": True
+            },
+            "reasoning_effort": {
+                "type": "string",
+                "description": "Reasoning effort level: 'low', 'medium', or 'high'",
+                "required": False,
+                "default": "high"
             }
         }
     }

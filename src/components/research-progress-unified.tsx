@@ -37,6 +37,7 @@ import ReactMarkdown from 'react-markdown'
 import { cn } from "@/lib/utils"
 import { useDeepResearchBrowser } from "@/hooks/use-deep-research-browser"
 import { DeepResearchBrowserPanel } from "@/components/deep-research-browser-panel"
+import { motion, AnimatePresence } from "framer-motion"
 
 interface ResearchOutput {
   plan?: string
@@ -73,7 +74,14 @@ interface ResearchOutput {
 interface ResearchMessage {
   type: 'plan' | 'outline' | 'findings' | 'evaluation' | 'status' | 'final' | 'thought' | 'action'
   content: string
+  agent?: string
+  stage?: string
   timestamp: Date
+  metadata?: {
+    toolName?: string
+    toolInput?: any
+    toolOutput?: any
+  }
 }
 
 interface ResearchProgressUnifiedProps {
@@ -349,19 +357,18 @@ export function ResearchProgressUnified({
               </div>
             </div>
             
-            {/* Thought bubble */}
-            {latestThought && (
-              <Button
-                variant="ghost"
-                size="sm"
+            {/* Agent Thoughts Counter */}
+            <div className="flex items-center gap-2">
+              <Badge 
+                variant="outline" 
+                className="cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => setShowThoughts(!showThoughts)}
-                className="relative"
               >
-                <Brain className="w-4 h-4 mr-2" />
+                <Brain className="w-3 h-3 mr-1" />
                 Agent Thoughts
-                <Badge variant="secondary" className="ml-2">{thoughtMessages.length}</Badge>
-              </Button>
-            )}
+                <span className="ml-2 font-bold">{messages.filter(m => m.type === 'thought').length}</span>
+              </Badge>
+            </div>
           </div>
 
           {/* Progress Timeline */}
@@ -429,11 +436,25 @@ export function ResearchProgressUnified({
                         <Icon className="w-5 h-5" />
                       )}
                       
-                      {/* Thinking indicator */}
-                      {isActive && isThinking && (
-                        <div className="absolute -top-2 -right-2 w-4 h-4 bg-purple-500 rounded-full animate-pulse flex items-center justify-center">
-                          <Brain className="w-2.5 h-2.5 text-white" />
+                      {/* Stage thought count indicator */}
+                      {messages.filter(m => m.stage === stage.id && m.type === 'thought').length > 0 && (
+                        <div className="absolute -top-2 -right-2 bg-purple-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold shadow-lg">
+                          {messages.filter(m => m.stage === stage.id && m.type === 'thought').length}
                         </div>
+                      )}
+                      
+                      {/* Active thinking indicator */}
+                      {isActive && isThinking && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="absolute -bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded-full"
+                        >
+                          <Brain className="w-3 h-3 text-purple-600 dark:text-purple-400 animate-pulse" />
+                          <p className="text-xs text-purple-600 dark:text-purple-400">
+                            Thinking...
+                          </p>
+                        </motion.div>
                       )}
                     </div>
                     
@@ -462,23 +483,99 @@ export function ResearchProgressUnified({
       </CardHeader>
 
       <CardContent className="pt-8" ref={scrollRef}>
-        {/* Thought Stream (collapsible) */}
-        {showThoughts && thoughtMessages.length > 0 && (
-          <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-950/20 rounded-xl border border-purple-200 dark:border-purple-800">
-            <h3 className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-2">
-              <Brain className="w-4 h-4" />
-              Agent Reasoning Process
-            </h3>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {thoughtMessages.map((thought, idx) => (
-                <div key={idx} className="text-sm text-purple-700 dark:text-purple-300 italic">
-                  "{thought.content}"
-                  <span className="text-xs text-purple-500 ml-2">
-                    {thought.timestamp.toLocaleTimeString()}
-                  </span>
+        {/* Transparent Agent Activity Panel */}
+        {messages.length > 0 && (
+          <div className="mb-6 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Brain className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                  <h3 className="font-semibold">Deep Research Engine</h3>
+                  <Badge variant="secondary" className="ml-2">
+                    {messages.filter(m => m.type === 'thought').length} thoughts
+                  </Badge>
+                  <Badge variant="outline" className="ml-1">
+                    {messages.filter(m => m.type === 'action').length} actions
+                  </Badge>
                 </div>
-              ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowThoughts(!showThoughts)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {showThoughts ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
             </div>
+            
+            <AnimatePresence>
+              {showThoughts && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <ScrollArea className="max-h-96">
+                    <div className="p-4 space-y-3">
+                      {messages.map((msg, idx) => (
+                        <motion.div
+                          key={idx}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: Math.min(idx * 0.05, 0.3) }}
+                          className={cn(
+                            "rounded-lg p-3 text-sm",
+                            msg.type === 'thought' && "bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800",
+                            msg.type === 'action' && "bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800",
+                            msg.type === 'plan' && "bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800",
+                            msg.type === 'findings' && "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800"
+                          )}
+                        >
+                          <div className="flex items-start gap-2">
+                            {msg.type === 'thought' && <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />}
+                            {msg.type === 'action' && <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />}
+                            {msg.type === 'plan' && <FileText className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />}
+                            {msg.type === 'findings' && <Search className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                {msg.agent && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {msg.agent}
+                                  </Badge>
+                                )}
+                                {msg.stage && (
+                                  <Badge variant="secondary" className="text-xs capitalize">
+                                    {stages.find(s => s.id === msg.stage)?.label || msg.stage}
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground">
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </span>
+                              </div>
+                              <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                                {msg.content}
+                              </p>
+                              {msg.metadata?.toolName && (
+                                <div className="mt-2 p-2 bg-slate-100 dark:bg-slate-800 rounded text-xs text-muted-foreground">
+                                  <span className="font-medium">Tool:</span> {msg.metadata.toolName}
+                                  {msg.metadata.toolInput && (
+                                    <div className="mt-1 truncate">
+                                      <span className="font-medium">Input:</span> {JSON.stringify(msg.metadata.toolInput).substring(0, 100)}...
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 

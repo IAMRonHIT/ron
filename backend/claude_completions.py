@@ -1,4 +1,4 @@
-import anthropic
+from anthropic import AsyncAnthropic
 import os
 from typing import List, Dict, Any, Optional, AsyncGenerator
 import json
@@ -16,7 +16,12 @@ class ClaudeCompletions:
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
             
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.client = AsyncAnthropic(
+            api_key=api_key,
+            default_headers={
+                "anthropic-beta": "interleaved-thinking-2025-05-14"
+            }
+        )
         self.model = "claude-sonnet-4-20250514"
         self.default_system_prompt = """You are **Ron of Ron AI**, a specialized healthcare AI assistant dedicated to helping patients access their prescribed medications at the lowest possible cost while ensuring safety, quality, and proper medical adherence.
 
@@ -26,141 +31,104 @@ class ClaudeCompletions:
 
 ## Tools
 
-* **Browser-Use Tool**
+* **Browser-Use Tool** (`browser_use`)
   An automated, headless browser agent that can:
 
   * Navigate patient-facing portals (insurer sites, pharmacy sites, manufacturer sites)
   * Fill and submit enrollment or renewal forms on behalf of the patient
   * Scrape confirmation numbers, coverage details, and pricing tables in real time
+  * Automatically reuses existing sessions within 15 minutes
   
-  **CRITICAL: You MUST use ONLY ONE browser session at a time. NEVER create multiple browser sessions. The system enforces single session limits. Always use the existing session if available.**
+  **CRITICAL: You MUST use ONLY ONE browser session at a time. NEVER create multiple browser sessions. The system enforces single session limits.**
 
-* **Web-Search**
-  A high-precision search capability that:
+* **Reuse Browser Session Tool** (`reuse_browser_session`)
+  Continue working in an existing browser session:
+  
+  * Use this for follow-up actions in a browser that's already open
+  * Maintains continuity without creating new sessions
+  * Automatically finds and uses the most recent active session
+  * Extends the session timeout to keep it alive longer
 
-  * Queries the latest drug-pricing databases and public payer formularies
-  * Aggregates published and gray-market cost data (GoodRx, SingleCare, Medicare Part D)
-  * Monitors news feeds for newly launched copay assistance or state relief programs
+* **Check Browser Session Tool** (`check_browser_session`)
+  Check browser session health and auto-refresh if needed:
+  
+  * ALWAYS use this before reusing a browser session
+  * Automatically creates new session if less than 5 minutes remain
+  * Returns session status and time remaining
+  * Prevents session expiration errors
 
-*(These tools augment your core reasoning and clinical-appropriateness checks, ensuring every recommendation is grounded in the freshest data.)*
+* **Perplexity Sonar Pro Tool** (`perplexity_sonar_pro`)
+  **General Search Tool - USE THIS FIRST** for broad, fast searches:
+  * Quick searches across multiple topics or sources
+  * Current information retrieval (prices, news, updates)
+  * Finding contact information and basic facts
+  * Initial exploration of any topic
+  * When you need fast, accurate results from the web
 
----
+* **Perplexity Reasoning Pro Tool** (`perplexity_reasoning_pro`)
+  **Multi-Criteria Analysis Tool - USE THIS SECOND** for complex searches requiring reasoning:
+  * Comparing multiple options with specific criteria
+  * Analyzing eligibility requirements and complex rules
+  * Understanding relationships between different factors
+  * When you need to evaluate multiple aspects simultaneously
+  * Making logical deductions from search results
 
-## Core Mission
-
-Your primary objective is to serve as a patient advocate in navigating the complex landscape of medication pricing, insurance coverage, and assistance programs. You combine advanced research capabilities with practical execution to deliver tangible cost savings for patients.
-
----
-
-## Key Responsibilities
-
-### 1. Comprehensive Cost Analysis
-
-* Analyze patient insurance coverage and current medication costs
-* Research all available cost-reduction opportunities: generics, manufacturer assistance, pharmacy discounts (GoodRx, SingleCare, RxSaver), e-pharmacies (Amazon Pharmacy, Cost Plus Drugs), local savings, government programs, patient foundations
-
-### 2. Eligibility Verification
-
-* Assess patient eligibility for each program based on income, insurance status, age/diagnosis, geography, and program-specific criteria
-
-### 3. Program Enrollment Support
-
-* Guide patients through enrollment processes
-* Deploy automated browser agents for online applications when appropriate
-* Provide step-by-step instructions for manual enrollment
-* Track confirmation numbers and follow-up requirements
-
-### 4. Medication Cost Savings
-
-* **Discover & Validate** the universe of savings options via web-search and real-time scraping
-* **Compare** costs across retail, e-pharmacy, and manufacturer channels
-* **Execute** enrollment or coupon retrieval instantly via browser automation
-* **Document** estimated savings and confirm patient's adherence plan
-
-### 5. Provider Search
-
-* **Network Verification**: Query insurer directories for in-network physicians, pharmacies, infusion centers
-* **Quality Matching**: Cross-reference CMS star ratings and patient reviews
-* **Appointment Coordination**: Automate requests for new-patient slots or prior-auth referrals
-
-### 6. Denial Navigation
-
-* **Denial Triage**: Ingest EOB documents; classify denial reasons
-* **Appeal Drafting**: Auto-populate appeal templates tailored to payer requirements
-* **Follow-Up Tracking**: Use browser agents to check appeal status and escalate as needed
-
-### 7. Care Coordination
-
-* **Task Orchestration**: Generate Kanban-style action lists for multi-step workflows (e.g., prior auth → referral → follow-up)
-* **Stakeholder Messaging**: Draft and send secure messages to providers, payers, pharmacies
-* **Progress Monitoring**: Continuously scrape portal updates to keep the patient's care plan current
+* **Perplexity Deep Research Tool** (`perplexity_deep_research`)
+  **Deep Dive Tool - USE THIS SPARINGLY** for exhaustive single-topic research:
+  * Comprehensive investigation of ONE specific topic only
+  * Academic or clinical research on a single subject
+  * Detailed analysis requiring extensive documentation
+  * When you need the most thorough information possible on ONE thing
+  
+  **SEARCH WORKFLOW**: Start with Sonar Pro for general search → Use Reasoning Pro for multi-criteria analysis → Reserve Deep Research for single-topic deep dives only.
 
 ---
 
-## Operational Principles
+## Your Mission
 
-### Patient Safety First
+1. **Minimize patient out-of-pocket costs** - Your #1 priority is finding the most affordable way for the patient to get their prescribed medication.
 
-* Never recommend unverified medication sources
-* Ensure all alternatives are FDA-approved and bioequivalent
-* Factor in medication urgency and patient's ability to navigate programs
-* Uphold medication adherence as the top priority
+2. **Navigate complex systems on their behalf** - Use your browser automation capabilities to check prices, fill forms, and complete enrollments the patient would otherwise have to do manually.
 
-### Systematic Approach
+3. **Provide comprehensive support** - Research insurance coverage, manufacturer programs, patient assistance programs, discount cards, and alternative medications when appropriate.
 
-1. **Discovery Phase**: Exhaustively research cost-saving opportunities
-2. **Eligibility Assessment**: Create detailed eligibility matrices
-3. **Ranking & Presentation**: Present options with transparent reasoning
-4. **Execution Support**: Facilitate enrollment in chosen programs
-5. **Documentation**: Maintain detailed records of all actions and confirmations
+4. **Ensure safety and compliance** - Never compromise on medication safety or medical appropriateness in pursuit of cost savings.
 
-### Tool Utilization
-
-* Use **Web-Search** for up-to-date pricing and program information
-* Verify clinical appropriateness when considering alternatives
-* Leverage specialized reasoning for complex eligibility determinations
-* Utilize **Browser-Use Tool** for streamlined enrollment
-* Provide interactive selection interfaces to empower patient choice
+5. **Be proactive** - Don't just answer questions; actively search for savings opportunities the patient might not know about.
 
 ---
 
-## Communication Standards
+## Response Guidelines
 
-### With Patients
-
-* Use clear, non-technical language
-* Provide specific dollar-amount savings
-* Include concrete next steps with timelines
-* Offer backup options for contingency planning
-
-### Documentation Format
-
-1. **Selected Best Option** with detailed reasoning
-2. **Actions Taken** with confirmations
-3. **Estimated Savings Breakdown**
-4. **Numbered Next Steps** for the patient
-5. **Essential Contact Information** and reference numbers
+* Be warm, empathetic, and professional - patients are often stressed about medication costs
+* Explain complex insurance/pharmacy terms in simple language
+* Provide specific, actionable steps with clear instructions
+* When using browser automation, narrate what you're doing so the patient can follow along
+* Always verify critical information (prices, coverage, etc.) from official sources
+* If you find significant savings, celebrate with the patient - this can be life-changing
 
 ---
 
-## Ethical Guidelines
+## Safety & Compliance
 
-* Maintain strict patient confidentiality
-* Provide unbiased recommendations based solely on patient benefit
-* Disclose any limitations in available options
-* Never accept compensation from pharmaceutical companies or pharmacies
-* Prioritize long-term medication affordability and adherence
+* Only work with FDA-approved medications from legitimate sources
+* Never recommend purchasing from unverified online pharmacies
+* Respect HIPAA and patient privacy at all times
+* Don't make medical recommendations - focus on access and affordability
+* Always encourage patients to consult their healthcare provider for medical decisions
 
 ---
 
-## Quality Metrics
+## Success Metrics
 
-* Percentage reduction in patient medication costs
-* Speed of identifying and implementing solutions
-* Patient ability to maintain medication adherence
-* Accuracy of eligibility assessments
-* Successful program enrollments
-"""
+Your effectiveness is measured by:
+* Dollar amount saved for patients
+* Time saved through automation
+* Successful enrollment in assistance programs
+* Accuracy of insurance/coverage information
+* Patient satisfaction and reduced medication access stress
+
+Remember: Every dollar saved and every barrier removed helps a real person access the healthcare they need. Your work directly impacts lives."""
     
     async def stream_complete(
         self,
@@ -174,62 +142,70 @@ Your primary objective is to serve as a patient advocate in navigating the compl
         system_prompt: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Stream completion with tool support.
+        Stream completion with tool support - provides seamless agent behavior.
         """
         try:
-            # Prepare the request
-            request_params = {
-                "model": self.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "betas": ["web-search-2025-03-05"]
-            }
+            # Keep conversation history for tool handling
+            conversation_messages = messages.copy()
             
-            # Add system prompt
-            if system_prompt:
-                request_params["system"] = system_prompt
-            else:
-                request_params["system"] = self.default_system_prompt
-            
-            # Add thinking if enabled
-            if enable_thinking:
-                request_params["thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": thinking_budget
+            while True:
+                # Prepare the request
+                request_params = {
+                    "model": self.model,
+                    "messages": conversation_messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
                 }
-            
-            # Handle tools
-            if tools:
-                tool_list = []
-                for tool in tools:
-                    if isinstance(tool, str):
-                        # Native tool
-                        if tool == "bash":
-                            tool_list.append({"type": "bash_20250124", "name": "bash"})
-                        elif tool == "text_editor":
-                            tool_list.append({"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"})
-                        elif tool == "web_search":
-                            tool_list.append({"name": "web_search", "type": "web_search_20250305"})
-                    elif isinstance(tool, dict):
-                        # Custom tool
-                        tool_list.append(tool)
                 
-                # Add custom tools if provided
-                if custom_tools:
-                    tool_list.extend(custom_tools)
+                # Add system prompt
+                if system_prompt:
+                    request_params["system"] = system_prompt
+                else:
+                    request_params["system"] = self.default_system_prompt
                 
-                if tool_list:
-                    request_params["tools"] = tool_list
-                    logger.info(f"Sending tools to Claude: {json.dumps(tool_list, indent=2)}")
-            
-            # Create streaming message with tool execution support
-            with self.client.beta.messages.stream(**request_params) as stream:
-                tool_use_content = None
-                tool_use_id = None
-                tool_name = None
+                # Add thinking if enabled
+                if enable_thinking:
+                    request_params["thinking"] = {
+                        "type": "enabled",
+                        "budget_tokens": thinking_budget
+                    }
                 
-                for event in stream:
+                # Handle tools
+                if tools or custom_tools:
+                    tool_list = []
+                    
+                    if tools:
+                        for tool in tools:
+                            if isinstance(tool, str):
+                                # Native tool
+                                if tool == "bash":
+                                    tool_list.append({"type": "bash_20250124", "name": "bash"})
+                                elif tool == "text_editor":
+                                    tool_list.append({"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"})
+                            elif isinstance(tool, dict):
+                                # Custom tool
+                                tool_list.append(tool)
+                    
+                    # Add custom tools if provided
+                    if custom_tools:
+                        tool_list.extend(custom_tools)
+                    
+                    if tool_list:
+                        request_params["tools"] = tool_list
+                        logger.info(f"Sending tools to Claude: {json.dumps(tool_list, indent=2)}")
+                
+                # For beta features with interleaved thinking, we need to use beta.messages.create with stream=True
+                request_params["stream"] = True
+                
+                # Use beta.messages.create for streaming with interleaved thinking
+                stream = await self.client.beta.messages.create(**request_params)
+                
+                # Track content blocks and stop reason
+                assistant_content = []
+                stop_reason = None
+                
+                # Process events as they come
+                async for event in stream:
                     if hasattr(event, 'type'):
                         if event.type == 'message_start':
                             yield {
@@ -241,83 +217,91 @@ Your primary objective is to serve as a patient advocate in navigating the compl
                                 }
                             }
                         elif event.type == 'content_block_start':
-                            # Check if this is a tool use block
-                            if hasattr(event, 'content_block') and hasattr(event.content_block, 'type'):
-                                if event.content_block.type == 'tool_use':
-                                    tool_use_id = getattr(event.content_block, 'id', None)
-                                    tool_name = getattr(event.content_block, 'name', None)
-                                    tool_use_content = ""
-                                    logger.info(f"Tool use started: {tool_name} (ID: {tool_use_id})")
+                            content_block_type = getattr(event.content_block, 'type', 'text')
+                            block_index = getattr(event, 'index', 0)
+                            
+                            # Initialize content block in our tracking
+                            while len(assistant_content) <= block_index:
+                                assistant_content.append({})
+                            
+                            if content_block_type == 'text':
+                                assistant_content[block_index] = {
+                                    'type': 'text',
+                                    'text': ''
+                                }
+                            elif content_block_type == 'thinking':
+                                assistant_content[block_index] = {
+                                    'type': 'thinking',
+                                    'thinking': '',
+                                    'signature': ''  # Required field for thinking blocks
+                                }
+                            elif content_block_type == 'tool_use':
+                                assistant_content[block_index] = {
+                                    'type': 'tool_use',
+                                    'id': getattr(event.content_block, 'id', ''),
+                                    'name': getattr(event.content_block, 'name', ''),
+                                    'input': ''
+                                }
                             
                             yield {
                                 'type': 'content_block_start',
-                                'index': getattr(event, 'index', 0),
+                                'index': block_index,
                                 'content_block': {
-                                    'type': getattr(event.content_block, 'type', 'text'),
+                                    'type': content_block_type,
                                     'text': getattr(event.content_block, 'text', ''),
                                     'id': getattr(event.content_block, 'id', ''),
                                     'name': getattr(event.content_block, 'name', '')
                                 }
                             }
                         elif event.type == 'content_block_delta':
-                            # Handle tool use input accumulation
-                            if tool_use_id and hasattr(event, 'delta') and hasattr(event.delta, 'partial_json'):
-                                tool_use_content += event.delta.partial_json
+                            delta_type = getattr(event.delta, 'type', 'text_delta')
+                            block_index = getattr(event, 'index', 0)
+                            delta_obj = {'type': delta_type}
+                            
+                            # Update our content tracking
+                            if block_index < len(assistant_content):
+                                if delta_type == 'text_delta':
+                                    delta_obj['text'] = getattr(event.delta, 'text', '')
+                                    if 'text' in assistant_content[block_index]:
+                                        assistant_content[block_index]['text'] += delta_obj['text']
+                                elif delta_type == 'thinking_delta':
+                                    delta_obj['thinking'] = getattr(event.delta, 'thinking', '')
+                                    if 'thinking' in assistant_content[block_index]:
+                                        assistant_content[block_index]['thinking'] += delta_obj['thinking']
+                                elif delta_type == 'signature_delta':
+                                    delta_obj['signature'] = getattr(event.delta, 'signature', '')
+                                    # Accumulate signature for thinking blocks
+                                    if block_index < len(assistant_content) and 'signature' in assistant_content[block_index]:
+                                        assistant_content[block_index]['signature'] += delta_obj['signature']
+                                elif delta_type == 'input_json_delta':
+                                    delta_obj['partial_json'] = getattr(event.delta, 'partial_json', '')
+                                    if assistant_content[block_index].get('type') == 'tool_use':
+                                        assistant_content[block_index]['input'] += delta_obj['partial_json']
                             
                             yield {
                                 'type': 'content_block_delta',
-                                'index': getattr(event, 'index', 0),
-                                'delta': {
-                                    'type': getattr(event.delta, 'type', 'text_delta'),
-                                    'text': getattr(event.delta, 'text', ''),
-                                    'partial_json': getattr(event.delta, 'partial_json', '')
-                                }
+                                'index': block_index,
+                                'delta': delta_obj
                             }
                         elif event.type == 'content_block_stop':
-                            # Execute tool if we have accumulated tool use content
-                            if tool_use_id and tool_name and tool_use_content:
+                            block_index = getattr(event, 'index', 0)
+                            
+                            # Parse JSON input for tool use blocks
+                            if block_index < len(assistant_content) and assistant_content[block_index].get('type') == 'tool_use':
                                 try:
-                                    from tools import execute_tool
-                                    
-                                    # Parse the tool input
-                                    tool_input = json.loads(tool_use_content)
-                                    logger.info(f"Executing tool {tool_name} with input: {tool_input}")
-                                    
-                                    # Execute the tool
-                                    tool_result = await execute_tool(tool_name, tool_input)
-                                    logger.info(f"Tool {tool_name} executed successfully")
-                                    
-                                    # Yield tool result
-                                    yield {
-                                        'type': 'tool_result',
-                                        'tool_use_id': tool_use_id,
-                                        'tool_name': tool_name,
-                                        'result': tool_result
-                                    }
-                                    
-                                except Exception as e:
-                                    logger.error(f"Error executing tool {tool_name}: {str(e)}")
-                                    yield {
-                                        'type': 'tool_error',
-                                        'tool_use_id': tool_use_id,
-                                        'tool_name': tool_name,
-                                        'error': str(e)
-                                    }
-                                finally:
-                                    # Reset tool tracking
-                                    tool_use_id = None
-                                    tool_name = None
-                                    tool_use_content = None
+                                    assistant_content[block_index]['input'] = json.loads(assistant_content[block_index]['input'])
+                                except json.JSONDecodeError:
+                                    logger.error(f"Failed to parse tool input JSON: {assistant_content[block_index]['input']}")
                             
                             yield {
                                 'type': 'content_block_stop',
-                                'index': getattr(event, 'index', 0)
+                                'index': block_index
                             }
                         elif event.type == 'message_delta':
-                            # Handle message delta with safe serialization
                             delta_dict = {}
                             if hasattr(event.delta, 'stop_reason'):
                                 delta_dict['stop_reason'] = event.delta.stop_reason
+                                stop_reason = event.delta.stop_reason
                             if hasattr(event.delta, 'stop_sequence'):
                                 delta_dict['stop_sequence'] = event.delta.stop_sequence
                             
@@ -334,52 +318,141 @@ Your primary objective is to serve as a patient advocate in navigating the compl
                                 'usage': usage_dict
                             }
                         elif event.type == 'message_stop':
-                            yield {
-                                'type': 'message_stop'
-                            }
-                        elif hasattr(event, 'type') and ('thinking' in str(event.type).lower() or 
-                                                               str(type(event).__name__).startswith('BetaThinking')):
-                            # Handle thinking events specially to avoid serialization issues
-                            thinking_content = ""
-                            if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
-                                thinking_content = event.delta.text
-                            elif hasattr(event, 'content') and hasattr(event.content, 'text'):
-                                thinking_content = event.content.text
-                            elif hasattr(event, 'text'):
-                                thinking_content = event.text
-                            
-                            yield {
-                                'type': 'content_block_delta',
-                                'index': getattr(event, 'index', 0),
-                                'delta': {
-                                    'type': 'thinking_delta',
-                                    'text': thinking_content
-                                }
-                            }
+                            # Don't yield message_stop if we're continuing with tools
+                            # The frontend should only see the final message_stop
+                            pass
                         else:
-                            # Handle any other event types safely
-                            event_type = getattr(event, 'type', str(type(event).__name__))
-                            
-                            # For unknown events, create a safe serializable version
-                            safe_data = {
-                                'type': event_type,
-                                'raw_type': str(type(event).__name__)
-                            }
-                            
-                            # Try to extract common attributes safely
-                            for attr in ['index', 'text', 'content']:
-                                if hasattr(event, attr):
-                                    try:
-                                        value = getattr(event, attr)
-                                        # Only include simple types
-                                        if isinstance(value, (str, int, float, bool, type(None))):
-                                            safe_data[attr] = value
-                                    except:
-                                        pass
-                            
-                            yield safe_data
-                            
-                            
+                            # Pass through any other events
+                            logger.debug(f"Unknown event type: {event.type}")
+                
+                # After streaming completes, check if we need to handle tools
+                if stop_reason == 'tool_use':
+                    # Yield a status event to indicate we're executing tools
+                    yield {
+                        'type': 'agent_status',
+                        'data': {
+                            'status': 'executing_tools',
+                            'message': 'Processing tool requests...'
+                        }
+                    }
+                    
+                    # Add assistant message to conversation
+                    conversation_messages.append({
+                        'role': 'assistant',
+                        'content': assistant_content
+                    })
+                    
+                    # Execute tools silently and collect results
+                    tool_results = []
+                    for block in assistant_content:
+                        if block.get('type') == 'tool_use':
+                            try:
+                                from tools import execute_tool
+                                
+                                tool_name = block['name']
+                                tool_input = block['input']
+                                tool_id = block['id']
+                                
+                                logger.info(f"Executing tool {tool_name} with input: {tool_input}")
+                                
+                                # Browser_use will return the live_url in its result
+                                
+                                # For browser tools, send LiveURL immediately before execution
+                                if tool_name in ['browser_use', 'reuse_browser_session']:
+                                    logger.info(f"Browser tool detected: {tool_name}")
+                                    # Quick check to get session info without executing task
+                                    from browser_use_service import browser_use_service
+                                    
+                                    # Try to get existing session first
+                                    active_sessions = await browser_use_service.list_active_sessions()
+                                    if active_sessions['total_sessions'] > 0:
+                                        session = active_sessions['sessions_list'][0]
+                                        logger.info(f"IMMEDIATE: Sending LiveURL from existing session: {session['live_url']}")
+                                        yield {
+                                            'type': 'browser_live_url',
+                                            'live_url': session['live_url'],
+                                            'session_id': session['session_id']
+                                        }
+                                
+                                # Execute the tool
+                                tool_result = await execute_tool(tool_name, tool_input)
+                                logger.info(f"Tool {tool_name} executed successfully")
+                                
+                                # For browser_use or reuse_browser_session, also yield live URL if it's in the result
+                                if (tool_name in ['browser_use', 'reuse_browser_session']) and isinstance(tool_result, dict) and 'live_url' in tool_result:
+                                    logger.info(f"SENDING browser_live_url EVENT: {tool_result['live_url']}")
+                                    yield {
+                                        'type': 'browser_live_url',
+                                        'live_url': tool_result['live_url'],
+                                        'session_id': tool_result.get('session_id')
+                                    }
+                                else:
+                                    logger.info(f"NO LIVE_URL SENT: tool_name={tool_name}, result_type={type(tool_result)}, is_dict={isinstance(tool_result, dict)}, has_live_url={'live_url' in tool_result if isinstance(tool_result, dict) else False}")
+                                    if isinstance(tool_result, dict):
+                                        logger.info(f"Tool result keys: {list(tool_result.keys())}")
+                                
+                                # Yield tool result to frontend
+                                yield {
+                                    'type': 'tool_result',
+                                    'tool_name': tool_name,
+                                    'tool_id': tool_id,
+                                    'result': tool_result
+                                }
+                                
+                                # Add to results for next message
+                                tool_results.append({
+                                    'type': 'tool_result',
+                                    'tool_use_id': tool_id,
+                                    'content': json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
+                                })
+                                
+                            except Exception as e:
+                                logger.error(f"Error executing tool {tool_name}: {str(e)}")
+                                
+                                # Yield tool error to frontend
+                                yield {
+                                    'type': 'tool_error',
+                                    'tool_name': tool_name,
+                                    'tool_id': tool_id,
+                                    'error': str(e)
+                                }
+                                
+                                tool_results.append({
+                                    'type': 'tool_result',
+                                    'tool_use_id': tool_id,
+                                    'content': f"Error: {str(e)}"
+                                })
+                    
+                    # Add tool results as user message
+                    # Tool results are already properly formatted as content blocks
+                    conversation_messages.append({
+                        'role': 'user',
+                        'content': tool_results
+                    })
+                    
+                    # Yield status that we're continuing
+                    yield {
+                        'type': 'agent_status',
+                        'data': {
+                            'status': 'thinking',
+                            'message': 'Analyzing results...'
+                        }
+                    }
+                    
+                    # Continue the loop to get Claude's next response
+                    logger.info("Continuing conversation after tool use...")
+                    continue
+                else:
+                    # No more tools to execute, we're done
+                    # Now yield the final message_stop
+                    yield {
+                        'type': 'message_stop',
+                        'data': {
+                            'final': True
+                        }
+                    }
+                    break
+                    
         except Exception as e:
             logger.error(f"Error in stream_complete: {str(e)}")
             yield {
@@ -408,7 +481,6 @@ Your primary objective is to serve as a patient advocate in navigating the compl
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "betas": ["web-search-2025-03-05"]
             }
             
             # Add system prompt
@@ -425,20 +497,20 @@ Your primary objective is to serve as a patient advocate in navigating the compl
                 }
             
             # Handle tools
-            if tools:
+            if tools or custom_tools:
                 tool_list = []
-                for tool in tools:
-                    if isinstance(tool, str):
-                        # Native tool
-                        if tool == "bash":
-                            tool_list.append({"type": "bash_20250124", "name": "bash"})
-                        elif tool == "text_editor":
-                            tool_list.append({"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"})
-                        elif tool == "web_search":
-                            tool_list.append({"name": "web_search", "type": "web_search_20250305"})
-                    elif isinstance(tool, dict):
-                        # Custom tool
-                        tool_list.append(tool)
+                
+                if tools:
+                    for tool in tools:
+                        if isinstance(tool, str):
+                            # Native tool
+                            if tool == "bash":
+                                tool_list.append({"type": "bash_20250124", "name": "bash"})
+                            elif tool == "text_editor":
+                                tool_list.append({"type": "text_editor_20250728", "name": "str_replace_based_edit_tool"})
+                        elif isinstance(tool, dict):
+                            # Custom tool
+                            tool_list.append(tool)
                 
                 # Add custom tools if provided
                 if custom_tools:
@@ -446,152 +518,18 @@ Your primary objective is to serve as a patient advocate in navigating the compl
                 
                 if tool_list:
                     request_params["tools"] = tool_list
-                    logger.info(f"Sending tools to Claude: {json.dumps(tool_list, indent=2)}")
             
-            # Create message
-            message = self.client.beta.messages.create(**request_params)
+            # Make the request using beta for interleaved thinking
+            response = await self.client.beta.messages.create(**request_params)
             
-            # Convert to dict format
             return {
-                "id": message.id,
-                "type": "message",
-                "role": message.role,
-                "content": [
-                    {
-                        "type": "text",
-                        "text": block.text if hasattr(block, 'text') else str(block)
-                    }
-                    for block in message.content
-                ],
-                "model": message.model,
-                "stop_reason": message.stop_reason,
-                "stop_sequence": message.stop_sequence,
-                "usage": {
-                    "input_tokens": message.usage.input_tokens,
-                    "output_tokens": message.usage.output_tokens
-                }
+                "success": True,
+                "response": response
             }
             
         except Exception as e:
             logger.error(f"Error in complete: {str(e)}")
-            raise
-    
-    async def execute_code_with_verification(
-        self,
-        code_task: str,
-        verify_output: bool = True,
-        enable_thinking: bool = True,
-        thinking_budget: int = 20000
-    ) -> Dict[str, Any]:
-        """
-        Execute code with verification using bash tool.
-        """
-        messages = [
-            {
-                "role": "user",
-                "content": f"Please help me with this coding task: {code_task}"
+            return {
+                "success": False,
+                "error": str(e)
             }
-        ]
-        
-        # Use streaming completion with bash tool
-        response_text = ""
-        async for event in self.stream_complete(
-            messages=messages,
-            tools=["bash"],
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget
-        ):
-            if event.get('type') == 'content_block_delta':
-                response_text += event.get('delta', {}).get('text', '')
-        
-        return {
-            "success": True,
-            "response": response_text,
-            "task": code_task
-        }
-    
-    async def search_and_analyze(
-        self,
-        query: str,
-        num_results: int = 5,
-        analyze: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Search and analyze using web search tool.
-        """
-        messages = [
-            {
-                "role": "user",
-                "content": f"Please search for and analyze: {query}"
-            }
-        ]
-        
-        # Use streaming completion with web search tool
-        response_text = ""
-        async for event in self.stream_complete(
-            messages=messages,
-            tools=["web_search"],
-            max_tokens=32000  # Increased for complex browser tasks
-        ):
-            if event.get('type') == 'content_block_delta':
-                response_text += event.get('delta', {}).get('text', '')
-        
-        return {
-            "success": True,
-            "query": query,
-            "response": response_text,
-            "num_results": num_results
-        }
-    
-    async def process_files(
-        self,
-        file_paths: List[str],
-        task: str,
-        enable_thinking: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Process files with task.
-        """
-        # Note: File processing would require additional implementation
-        # This is a placeholder
-        messages = [
-            {
-                "role": "user",
-                "content": f"Please help with this task on the provided files: {task}"
-            }
-        ]
-        
-        response = await self.complete(
-            messages=messages,
-            enable_thinking=enable_thinking
-        )
-        
-        return response
-    
-    async def execute_with_tools(
-        self,
-        messages: List[Dict[str, str]],
-        temperature: float = 1.0,
-        max_tokens: int = 32000,
-        enable_caching: bool = True,
-        cache_ttl: str = "5m",
-        enable_thinking: bool = True,
-        thinking_budget: int = 20000,
-        enable_citations: bool = True,
-        stream: bool = True
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Execute with all available tools.
-        """
-        # Use all standard tools
-        tools = ["bash", "text_editor", "web_search"]
-        
-        async for event in self.stream_complete(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            enable_thinking=enable_thinking,
-            thinking_budget=thinking_budget,
-            tools=tools
-        ):
-            yield event

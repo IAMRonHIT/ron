@@ -15,6 +15,7 @@ class BrowserToolHandler:
     """
     
     def __init__(self):
+        self.current_session_id = None  # Track the current session
         self.tool_definition = {
             "name": "browser",
             "description": "Open a browser, navigate to URLs, and allow user interaction through a live browser window",
@@ -60,6 +61,7 @@ class BrowserToolHandler:
                 # Use the existing browser-use service to create a session with URL
                 from browser_use_service import create_browser_session_with_url
                 result = await create_browser_session_with_url(url, timeout_ms=900000)  # 15 minutes
+                self.current_session_id = result["session_id"]  # Store the session ID
                 
                 return {
                     "success": True,
@@ -74,20 +76,35 @@ class BrowserToolHandler:
                 }
                 
             elif action == "navigate":
-                # For navigate, we'll create a new session with the URL
-                # This is simpler than tracking session state
                 if not url:
                     return {
                         "success": False,
                         "error": "URL is required for navigate action"
                     }
                 
+                # If we have a current session, navigate within it
+                if self.current_session_id and browser_use_service.active_sessions.get(self.current_session_id):
+                    try:
+                        session = browser_use_service.active_sessions[self.current_session_id]
+                        await session.browser_session.page.goto(url)
+                        return {
+                            "success": True,
+                            "message": f"Browser navigated to {url} in existing session",
+                            "session_id": self.current_session_id,
+                            "live_url": session.live_url
+                        }
+                    except Exception as e:
+                        logger.warning(f"Failed to navigate in existing session: {e}")
+                        # Fall through to create new session
+                
+                # Create new session if no existing one
                 from browser_use_service import create_browser_session_with_url
                 result = await create_browser_session_with_url(url, timeout_ms=900000)  # 15 minutes
+                self.current_session_id = result["session_id"]
                 
                 return {
                     "success": True,
-                    "message": f"Browser navigated to {url}",
+                    "message": f"Browser opened and navigated to {url}",
                     "session_id": result["session_id"],
                     "live_url": result["live_url"]
                 }
@@ -96,12 +113,14 @@ class BrowserToolHandler:
                 # Close all sessions
                 try:
                     result = await browser_use_service.close_all_sessions()
+                    self.current_session_id = None  # Clear the session ID
                     return {
                         "success": True,
                         "message": "Browser sessions closed",
                         "closed_count": result.get("total_closed", 0)
                     }
                 except:
+                    self.current_session_id = None  # Clear the session ID
                     return {
                         "success": True,
                         "message": "No active browser sessions to close"

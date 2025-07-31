@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 
 interface ComputerAgentState {
   isActive: boolean
@@ -16,85 +16,26 @@ export function useComputerAgent() {
     liveUrl: null,
     sessionId: null,
   })
+  
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const startAgent = async (task: string, url?: string) => {
-    try {
-      // Call browser-use backend to create session with LiveURL
-      const response = await fetch('http://localhost:8000/browser-use/session/create-with-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          url: url || 'https://duckduckgo.com', 
-          timeout_ms: 600000 
-        })
-      })
-      
-      if (!response.ok) {
-        throw new Error(`Failed to create browser session: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      const sessionId = data.result.session_id
-      const liveUrl = data.result.live_url
-      
-      setAgentState({
-        isActive: true,
-        currentTask: task,
-        liveUrl: liveUrl,
-        sessionId: sessionId,
-      })
-
-      // Now execute the task on the browser-use agent
-      if (task && task !== "Computer Use Agent Active") {
-        console.log(`Executing browser task: ${task}`)
-        
-        try {
-          const taskResponse = await fetch(`http://localhost:8000/browser-use/session/${sessionId}/task`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ task })
-          })
-          
-          if (!taskResponse.ok) {
-            console.error(`Failed to execute task: ${taskResponse.status}`)
-          } else {
-            const taskResult = await taskResponse.json()
-            console.log('Task execution result:', taskResult)
-          }
-        } catch (taskError) {
-          console.error('Error executing browser task:', taskError)
-        }
-      }
-      
-    } catch (error) {
-      console.error('Failed to start browser agent:', error)
-      // Fallback to just showing UI without LiveURL
-      const sessionId = `cua_${Date.now()}`
-      setAgentState({
-        isActive: true,
-        currentTask: task,
-        liveUrl: null,
-        sessionId,
-      })
-    }
+    // ONLY toggle UI visibility - NO API CALLS
+    // Browser sessions are ONLY created by Claude's backend tool calls
+    setAgentState({
+      isActive: true,
+      currentTask: task,
+      liveUrl: url || null,  // USE THE URL PARAMETER IF PROVIDED!
+      sessionId: null,
+    })
   }
 
+  // NO POLLING - LiveURL updates will come from Claude's backend events
+  // Remove all polling logic
+
   const stopAgent = async () => {
-    if (agentState.sessionId) {
-      try {
-        // Close browser session
-        await fetch(`http://localhost:8000/browser-use/session/${agentState.sessionId}/close`, {
-          method: 'DELETE',
-        })
-      } catch (error) {
-        console.error('Failed to close browser session:', error)
-      }
-    }
-    
+    // ONLY toggle UI visibility - NO API CALLS
+    // Browser sessions are managed by Claude's backend
     setAgentState({
       isActive: false,
       currentTask: null,
@@ -111,44 +52,22 @@ export function useComputerAgent() {
   }
 
   const updateUrl = (url: string) => {
-    setAgentState((prev) => ({
-      ...prev,
-      liveUrl: url,
-    }))
+    console.log('useComputerAgent - updateUrl called with:', url)
+    setAgentState((prev) => {
+      console.log('useComputerAgent - Previous state:', prev)
+      const newState = {
+        ...prev,
+        liveUrl: url,
+      }
+      console.log('useComputerAgent - New state:', newState)
+      return newState
+    })
   }
 
   const executeTask = async (task: string) => {
-    if (!agentState.sessionId) {
-      throw new Error('No active browser session')
-    }
-
-    try {
-      const taskResponse = await fetch(`http://localhost:8000/browser-use/session/${agentState.sessionId}/task`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ task })
-      })
-      
-      if (!taskResponse.ok) {
-        throw new Error(`Failed to execute task: ${taskResponse.status}`)
-      }
-      
-      const taskResult = await taskResponse.json()
-      console.log('Task execution result:', taskResult)
-      
-      // Update current task
-      setAgentState((prev) => ({
-        ...prev,
-        currentTask: task,
-      }))
-      
-      return taskResult
-    } catch (error) {
-      console.error('Error executing browser task:', error)
-      throw error
-    }
+    // This function should NOT be called from the UI
+    // Browser tasks are ONLY executed by Claude's backend
+    throw new Error('Browser tasks can only be executed by Claude')
   }
 
   return {

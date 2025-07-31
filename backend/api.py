@@ -4,6 +4,10 @@ Exposes all Claude 4 capabilities through REST API endpoints
 """
 
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -18,6 +22,10 @@ import shutil
 from browser_use import Agent, BrowserSession, BrowserProfile
 from browser_use.llm import ChatOpenAI
 
+# Load environment variables FIRST before any imports that need them
+from dotenv import load_dotenv
+load_dotenv('/Users/timhunter/ron-ai/.env')
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from claude_completions import ClaudeCompletions
+from browser_live_url_manager import live_url_manager
 
 # Import tools
 try:
@@ -58,16 +67,29 @@ except ImportError as e:
 
 # Deep Research Agent Integration (optional)
 try:
-    from deep_research_agent import root_agent as deep_research_root_agent
-    from google.adk.runners import InMemoryRunner
-    from google.adk.agents import RunConfig
-    from google.adk.agents import LiveRequestQueue
-    from google.genai import types as genai_types
-    DEEP_RESEARCH_AVAILABLE = True
-    logger.info("Deep Research Agent loaded successfully!")
+    # Import using the wrapper which handles all the path and import logic
+    from deep_research_wrapper import deep_research_root_agent, DEEP_RESEARCH_AVAILABLE
+    
+    if DEEP_RESEARCH_AVAILABLE:
+        # Import ADK components needed for the runner
+        from google.adk.runners import InMemoryRunner
+        from google.adk.agents import RunConfig
+        from google.adk.agents import LiveRequestQueue
+        from google.genai import types as genai_types
+        logger.info("Deep Research Agent loaded successfully!")
+    else:
+        logger.error("Deep Research Agent not available from wrapper")
+        deep_research_root_agent = None
+        
 except ImportError as e:
-    logger.error(f"Deep Research Agent not available: {e}")
+    logger.error(f"Deep Research Agent import failed: {e}")
+    logger.error(f"Make sure Google ADK is installed: pip install google-genai google-adk")
     DEEP_RESEARCH_AVAILABLE = False
+    deep_research_root_agent = None
+except Exception as e:
+    logger.error(f"Unexpected error loading Deep Research Agent: {e}")
+    DEEP_RESEARCH_AVAILABLE = False
+    deep_research_root_agent = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -118,16 +140,16 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     system_prompt: Optional[str] = None
     temperature: float = Field(0.0, ge=0.0, le=1.0)
-    max_tokens: int = Field(32000, gt=0)  # Increased for complex browser tasks
+    max_tokens: int = Field(32000, gt=0)  # Set to 32,000 for comprehensive responses
     enable_caching: bool = True
     cache_ttl: str = Field("5m", pattern="^(5m|1h)$")
     enable_thinking: bool = True
-    thinking_budget: int = Field(20000, gt=0)
+    thinking_budget: int = Field(20000, gt=0)  # Set to 20,000 thinking tokens
     enable_citations: bool = True
     stream: bool = False
     tools: List[str] = Field(
-        default_factory=lambda: ["bash", "code_execution", "computer", "text_editor", "web_search", "browser_use"],
-        description="List of tools to enable"
+        default_factory=lambda: ["bash", "code_execution", "computer", "text_editor", "web_search", "perplexity_sonar_pro"],
+        description="List of tools to enable. Available tools: bash, code_execution, computer, text_editor, web_search, browser_use, perplexity_deep_research, perplexity_reasoning_pro, perplexity_sonar_pro"
     )
 
 
@@ -358,8 +380,13 @@ async def root():
                 "bash_execution",
                 "code_execution",
                 "computer_use",
-                "text_editor",
-                "web_search"
+                "text_editor"
+            ],
+            "custom_tools": [
+                "browser_use",
+                "perplexity_deep_research",
+                "perplexity_reasoning_pro",
+                "perplexity_sonar_pro"
             ],
             "features": [
                 "prompt_caching",
@@ -432,17 +459,21 @@ async def chat(request: ChatRequest):
         
         # Separate native and custom tools
         for tool in request.tools:
-            if tool in ["bash", "text_editor", "web_search"]:
+            if tool in ["bash", "text_editor"]:
                 native_tools.append(tool)
-            elif tool in ["browser", "browser_use"] and TOOLS_AVAILABLE:
-                # Get browser tool definition
-                tool_defs = get_tool_definitions_for_claude()
-                browser_tool = next((t for t in tool_defs if t["name"] == "browser_use"), None)
-                if browser_tool:
-                    enabled_tools.append(browser_tool)
-                    logger.info(f"Added browser tool: {browser_tool['name']}")
-                else:
-                    logger.warning("Browser tool definition not found")
+            elif TOOLS_AVAILABLE:
+                # Check if it's a custom tool we support
+                if tool in ["browser", "browser_use", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro"]:
+                    # Get tool definitions
+                    tool_defs = get_tool_definitions_for_claude()
+                    # Handle browser tool aliases
+                    tool_name = "browser_use" if tool == "browser" else tool
+                    custom_tool = next((t for t in tool_defs if t["name"] == tool_name), None)
+                    if custom_tool:
+                        enabled_tools.append(custom_tool)
+                        logger.info(f"Added custom tool: {custom_tool['name']}")
+                    else:
+                        logger.warning(f"Custom tool definition not found: {tool_name}")
         
         logger.info(f"Final tools - native: {native_tools}, custom: {[t.get('name') for t in enabled_tools]}")
         logger.info(f"TOOLS_AVAILABLE: {TOOLS_AVAILABLE}")
@@ -453,22 +484,51 @@ async def chat(request: ChatRequest):
             logger.info("STREAMING COMPLETIONS MODE WITH TOOL EXECUTION")
             async def stream_generator():
                 try:
-                    # Pass native tools as strings, custom tools separately
-                    async for event in claude_agent.stream_complete(
-                        messages=messages,
-                        max_tokens=request.max_tokens,
-                        temperature=request.temperature,
-                        enable_thinking=request.enable_thinking,
-                        thinking_budget=request.thinking_budget,
-                        tools=native_tools,  # Only native tools as strings
-                        custom_tools=enabled_tools,  # Custom tools as dicts
-                        system_prompt=system_prompt
-                    ):
-                        yield f"data: {json.dumps(event)}\n\n"
+                    # Create a queue for LiveURL events
+                    event_queue = asyncio.Queue()
+                    
+                    # Set the event queue for live_url_manager
+                    live_url_manager.set_event_queue(event_queue)
+                    
+                    # Create tasks for both the Claude stream and LiveURL events
+                    async def process_claude_stream():
+                        try:
+                            async for event in claude_agent.stream_complete(
+                                messages=messages,
+                                max_tokens=request.max_tokens,
+                                temperature=request.temperature,
+                                enable_thinking=request.enable_thinking,
+                                thinking_budget=request.thinking_budget,
+                                tools=native_tools,  # Only native tools as strings
+                                custom_tools=enabled_tools,  # Custom tools as dicts
+                                system_prompt=system_prompt
+                            ):
+                                await event_queue.put(event)
+                        finally:
+                            await event_queue.put(None)  # Signal completion
+                    
+                    # Start the Claude stream processing
+                    claude_task = asyncio.create_task(process_claude_stream())
+                    
+                    # Process events from both sources
+                    while True:
+                        try:
+                            event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                            if event is None:  # Stream completed
+                                break
+                            yield f"data: {json.dumps(event)}\n\n"
+                        except asyncio.TimeoutError:
+                            # Check if task is done
+                            if claude_task.done():
+                                break
+                            continue
                         
                 except Exception as e:
                     logger.error(f"STREAMING ERROR: {str(e)}")
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                finally:
+                    # Clear the event queue
+                    live_url_manager.set_event_queue(None)
             
             return StreamingResponse(
                 stream_generator(),
@@ -693,12 +753,15 @@ async def deep_research_sse(request: DeepResearchRequest):
     Deep Research Agent SSE endpoint.
     Streams research progress and results in real-time.
     """
-    logger.info(f"=== DEEP RESEARCH ENDPOINT CALLED ===")
+    logger.info(f"=== DEEP RESEARCH ROUTING CHECK ===")
     logger.info(f"DEEP_RESEARCH_AVAILABLE: {DEEP_RESEARCH_AVAILABLE}")
+    logger.info(f"Request type: {request.dict()}")
     logger.info(f"Request: sessionId={request.sessionId}, userId={request.userId}, message={request.message[:100]}...")
     
     if not DEEP_RESEARCH_AVAILABLE:
+        logger.warning("=== FALLING BACK TO CLAUDE ===")
         logger.warning("Deep Research Agent not available, falling back to Claude")
+        logger.warning(f"Reason: DEEP_RESEARCH_AVAILABLE is {DEEP_RESEARCH_AVAILABLE}")
         # Fallback to regular Claude chat with enhanced research prompt
         try:
             # Create enhanced research prompt
@@ -715,16 +778,14 @@ Please:
             
             # Stream the response in SSE format
             async def event_stream():
-                async for event in claude_agent.execute_with_tools(
+                async for event in claude_agent.stream_complete(
                     messages=[{"role": "user", "content": research_prompt}],
                     temperature=0.0,
                     max_tokens=32000,
-                    enable_caching=True,
-                    cache_ttl="5m",
                     enable_thinking=True,
-                    thinking_budget=30000,
-                    enable_citations=True,
-                    stream=True
+                    thinking_budget=20000,
+                    tools=["web_search", "text_editor"],  # Enable web search for research
+                    system_prompt=None
                 ):
                     # Convert to deep research SSE format
                     sse_event = {
@@ -780,9 +841,13 @@ Please:
         )
         
         # Create message for agent directly from the request
+        # Ensure message is not None
+        message_text = request.message if request.message else ""
+        logger.info(f"Message text: '{message_text}' (type: {type(message_text)})")
+        
         message = genai_types.Content(
             role="user",
-            parts=[genai_types.Part(text=request.message)]
+            parts=[genai_types.Part(text=message_text)]
         )
         
         logger.info("Starting deep research agent execution...")
@@ -822,8 +887,29 @@ Please:
                     
                     # Add content if available
                     if hasattr(event, 'content') and event.content:
+                        # Extract actual text from the content
+                        text_content = ""
+                        if hasattr(event.content, 'parts'):
+                            for part in event.content.parts:
+                                if hasattr(part, 'text') and part.text is not None:
+                                    text_content += str(part.text)
+                                elif hasattr(part, 'function_call') and part.function_call:
+                                    # Handle function calls
+                                    if hasattr(part.function_call, 'name') and part.function_call.name:
+                                        text_content += f"[Calling function: {part.function_call.name}]"
+                                    else:
+                                        text_content += "[Calling function]"
+                                elif hasattr(part, 'function_response') and part.function_response:
+                                    # Handle function responses
+                                    if hasattr(part.function_response, 'response') and part.function_response.response and 'result' in part.function_response.response:
+                                        text_content += part.function_response.response['result']
+                                    else:
+                                        text_content += "[Function response received]"
+                        else:
+                            text_content = str(event.content)
+                        
                         event_data["content"] = {
-                            "parts": [{"text": str(event.content)}],
+                            "parts": [{"text": text_content}],
                             "role": "model"
                         }
                     

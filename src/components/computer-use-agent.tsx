@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, Monitor, Maximize2, Minimize2, RotateCcw, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { BrowserTimeline } from "./browser-timeline"
 
 interface Tab {
   id: string
@@ -25,6 +26,7 @@ interface ComputerUseAgentProps {
   onNewTab?: () => void
   onCloseTab?: (tabId: string) => void
   onSwitchTab?: (tabId: string) => void
+  browserActions?: any[]
 }
 
 export function ComputerUseAgent({
@@ -40,6 +42,7 @@ export function ComputerUseAgent({
   onNewTab,
   onCloseTab,
   onSwitchTab,
+  browserActions = [],
 }: ComputerUseAgentProps) {
   const [isMaximized, setIsMaximized] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -47,6 +50,23 @@ export function ComputerUseAgent({
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    console.log('ComputerUseAgent - liveUrl prop changed:', liveUrl)
+    
+    // Preload the iframe URL as soon as we get it for faster rendering
+    if (liveUrl && typeof window !== 'undefined') {
+      const link = document.createElement('link')
+      link.rel = 'prefetch'
+      link.href = liveUrl
+      document.head.appendChild(link)
+      
+      // Clean up prefetch link after component unmounts
+      return () => {
+        document.head.removeChild(link)
+      }
+    }
+  }, [liveUrl])
 
   if (!mounted) return null
 
@@ -166,21 +186,40 @@ export function ComputerUseAgent({
               </div>
             )}
 
-            {/* Browser Content - NO PADDING */}
-            <div className="flex-1 bg-white dark:bg-black">
-              {liveUrl ? (
-                <iframe
-                  src={liveUrl}
-                  className="w-full h-full border-0"
-                  title="Computer Use Agent Browser"
-                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation"
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-900">
-                  <div className="text-center">
-                    <Monitor className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-600" />
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Computer Use Agent Active</p>
-                    <p className="text-xs mt-1 text-gray-500 dark:text-gray-500">{task}</p>
+            {/* Browser Content with Timeline - Split View */}
+            <div className="flex-1 flex">
+              {/* Browser View */}
+              <div className="flex-1 bg-white dark:bg-black">
+                {liveUrl ? (
+                  <>
+                    <div className="absolute top-0 left-0 p-2 bg-black/50 text-white text-xs z-10">
+                      LiveURL: {liveUrl}
+                    </div>
+                    <iframe
+                      src={liveUrl}
+                      className="w-full h-full border-0"
+                      title="Computer Use Agent Browser"
+                    />
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-900">
+                    <div className="text-center">
+                      <Monitor className="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-600" />
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Computer Use Agent Active</p>
+                      <p className="text-xs mt-1 text-gray-500 dark:text-gray-500">{task}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Timeline Panel */}
+              {browserActions.length > 0 && (
+                <div className="w-80 border-l border-gray-200 dark:border-gray-800 overflow-y-auto bg-gray-50 dark:bg-gray-950">
+                  <div className="p-4">
+                    <BrowserTimeline 
+                      actions={browserActions} 
+                      isActive={true}
+                    />
                   </div>
                 </div>
               )}

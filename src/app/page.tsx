@@ -6,19 +6,21 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { PromptBuilderDialog } from "@/components/prompt-builder-dialog"
+// import { PromptBuilderDialog } from "@/components/prompt-builder-dialog"
 import { AgentStatusIndicator } from "@/components/agent-status-indicator"
 import { ProviderSearchInterface } from "@/components/provider-search-interface"
 import { MedicationManagerInterface } from "@/components/medication-manager-interface"
 import { CareTeamPanel } from "@/components/care-team-panel"
 import { ComputerUseAgent } from "@/components/computer-use-agent"
+import { BrowserTimeline } from "@/components/browser-timeline"
 import { RetractableSidebar } from "@/components/retractable-sidebar"
 import { useComputerAgent } from "@/hooks/use-computer-agent"
 import { claudeAPI, parseSSEStream, type ChatMessage } from "@/lib/api"
 import type { Message } from "@/lib/types"
-import { ReasoningDisplay } from "@/components/reasoning-display"
+import { ThinkingView } from "@/components/thinking-view"
 import { MessageBubble } from "@/components/message-bubble"
 import { ResearchProgressUnified } from "@/components/research-progress-unified"
+// import { CommandDropdown } from "@/components/command-dropdown"
 
 export default function HealthCopilot() {
   const [isDeepResearch, setIsDeepResearch] = useState(false)
@@ -27,15 +29,20 @@ export default function HealthCopilot() {
   const [showCareTeam, setShowCareTeam] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [deepResearchSessionId, setDeepResearchSessionId] = useState<string | null>(null)
+  const [deepResearchUserId, setDeepResearchUserId] = useState<string | null>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState("")
   const [currentReasoning, setCurrentReasoning] = useState("")
   const [reasoningTokens, setReasoningTokens] = useState(0)
   const [deepResearchOutputs, setDeepResearchOutputs] = useState<any>({})
   const [deepResearchMessages, setDeepResearchMessages] = useState<any[]>([])
+  const [showCommandMenu, setShowCommandMenu] = useState(false)
+  const [browserActions, setBrowserActions] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const { agentState, startAgent, stopAgent } = useComputerAgent()
+  const { agentState, startAgent, stopAgent, updateUrl } = useComputerAgent()
 
   useEffect(() => {
     setMounted(true)
@@ -48,46 +55,61 @@ export default function HealthCopilot() {
     }
   }, [messages, currentStreamingMessage])
 
-  const handleSendMessage = async () => {
-    if (inputValue.trim() && !isProcessing) {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setInputValue(value)
+  }
+
+  const handleCommandSelect = (prompt: string) => {
+    setInputValue(prompt)
+    setShowCommandMenu(false)
+    // Focus back on input
+    inputRef.current?.focus()
+  }
+
+  const handleSendMessage = async (messageOverride?: string) => {
+    const messageToSend = messageOverride || inputValue
+    if (typeof messageToSend === 'string' && messageToSend.trim() && !isProcessing) {
       const newMessage: Message = {
         role: "user",
-        content: inputValue,
+        content: messageToSend,
         timestamp: new Date(),
       }
 
       setMessages((prev) => [...prev, newMessage])
-      setInputValue("")
+      if (!messageOverride) {
+        setInputValue("")
+      }
       setIsProcessing(true)
       setCurrentStreamingMessage("")
       setCurrentReasoning("")
       setReasoningTokens(0)
 
-      // Check if Computer Use Agent is needed
-      const requiresCUA = checkIfRequiresCUA(inputValue)
-      if (requiresCUA) {
-        try {
-          await startAgent(`Researching: ${inputValue}`, undefined)
-        } catch (error) {
-          console.error("Error starting Computer Use Agent:", error)
-        }
-      }
-
       try {
         console.log("=== SENDING MESSAGE ===")
         console.log("Deep Research Mode:", isDeepResearch)
-        console.log("Message:", inputValue)
+        console.log("Message:", messageToSend)
         
         // Check if using deep research mode
         if (isDeepResearch) {
           console.log(">>> USING DEEP RESEARCH AGENT <<<")
-          // Use deep research endpoint
-          const userId = "user_" + Math.random().toString(36).substr(2, 9)
           
-          // Create a session first
-          console.log("Creating deep research session...")
-          const sessionId = await claudeAPI.createDeepResearchSession(userId)
-          console.log("Session created with ID:", sessionId)
+          let sessionId = deepResearchSessionId
+          let userId = deepResearchUserId
+          
+          // Only create a new session if we don't have one
+          if (!sessionId || !userId) {
+            userId = "user_" + Math.random().toString(36).substr(2, 9)
+            console.log("Creating new deep research session...")
+            sessionId = await claudeAPI.createDeepResearchSession(userId)
+            console.log("Session created with ID:", sessionId)
+            
+            // Save session info for subsequent messages
+            setDeepResearchSessionId(sessionId)
+            setDeepResearchUserId(userId)
+          } else {
+            console.log("Reusing existing session:", sessionId)
+          }
           
           // Create assistant message placeholder
           const assistantMessage: Message = {
@@ -105,9 +127,9 @@ export default function HealthCopilot() {
           })
           
           const stream = await claudeAPI.deepResearch(
-            inputValue,  // ONLY the message the user just typed
-            sessionId,
-            userId
+            messageToSend,  // Use the actual message being sent
+            sessionId!,  // We know sessionId is not null here due to the check above
+            userId!  // We know userId is not null here due to the check above
           )
           
           console.log("Deep research stream received:", stream)
@@ -144,16 +166,8 @@ export default function HealthCopilot() {
                       if (event.content?.parts) {
                         for (const part of event.content.parts) {
                           if (part.text) {
-                            // The text might be a string representation of Python objects
-                            // Look for actual text content within triple quotes
-                            const textMatch = part.text.match(/text="""([\s\S]*?)"""/);
-                            if (textMatch && textMatch[1]) {
-                              // Found actual text content in triple quotes
-                              fullContent = textMatch[1].trim()
-                            } else if (!part.text.startsWith('parts=')) {
-                              // Regular text content
-                              fullContent += part.text
-                            }
+                            // Direct text content from backend
+                            fullContent = part.text
                             setCurrentStreamingMessage(fullContent)
                           }
                         }
@@ -243,15 +257,31 @@ export default function HealthCopilot() {
                         // Add thought messages for agent thinking
                         if (event.content?.parts) {
                           for (const part of event.content.parts) {
-                            if (part.text && !part.text.startsWith('parts=')) {
+                            if (part.text) {
                               setDeepResearchMessages(prev => [...prev, {
                                 type: 'thought',
                                 content: part.text,
+                                agent: event.author,
+                                stage: event.stage || 'research',
                                 timestamp: new Date()
                               }])
                             }
                           }
                         }
+                      }
+                      
+                      // Track tool usage for transparency
+                      if (event.tool_use) {
+                        setDeepResearchMessages(prev => [...prev, {
+                          type: 'action',
+                          content: `Using ${event.tool_use.name}: ${event.tool_use.input?.task || event.tool_use.input?.query || 'Processing...'}`,
+                          agent: event.author || 'unknown',
+                          metadata: {
+                            toolName: event.tool_use.name,
+                            toolInput: event.tool_use.input
+                          },
+                          timestamp: new Date()
+                        }])
                       }
                       
                       // Update the assistant message
@@ -285,11 +315,11 @@ export default function HealthCopilot() {
             role: msg.role as "user" | "assistant",
             content: msg.content
           }))
-          apiMessages.push({ role: "user", content: inputValue })
+          apiMessages.push({ role: "user", content: messageToSend })
 
           // Determine which tools to enable based on context
-          const tools: string[] = ["web_search", "text_editor", "browser_use"]
-          if (inputValue.toLowerCase().includes("bash") || inputValue.toLowerCase().includes("command")) {
+          const tools: string[] = ["text_editor", "browser_use", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro"]
+          if (messageToSend.toLowerCase().includes("bash") || messageToSend.toLowerCase().includes("command")) {
             tools.push("bash")
           }
 
@@ -332,27 +362,280 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
           for await (const event of parseSSEStream(stream)) {
             console.log("Received event:", JSON.stringify(event))
             
+            // Handle content block start for thinking
+            if (event.type === 'content_block_start' && event.content_block?.type === 'thinking') {
+              console.log("Thinking block started")
+              // Reset reasoning for new thinking block
+              fullReasoning = ""
+              setCurrentReasoning("")
+            }
             // Handle content deltas (text)
-            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            else if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
               fullContent += event.delta.text || ""
               setCurrentStreamingMessage(fullContent)
             }
             // Handle thinking deltas
             else if (event.type === 'content_block_delta' && event.delta?.type === 'thinking_delta') {
-              fullReasoning += event.delta.text || ""
+              fullReasoning += event.delta.thinking || ""
               setCurrentReasoning(fullReasoning)
+            }
+            // Handle signature deltas
+            else if (event.type === 'content_block_delta' && event.delta?.type === 'signature_delta') {
+              // Signature is encrypted and we don't need to display it
+              console.log("Received signature delta")
             }
             // Handle tool use start
             else if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
               console.log(`Tool started: ${event.content_block.name}`)
-              fullContent += `\n\n🔧 Using ${event.content_block.name} tool...`
+              
+              // Format tool usage message based on tool type
+              let toolMessage = ''
+              if (event.content_block.name === 'browser_use') {
+                toolMessage = `\n\n🌐 **Launching browser automation...**`
+              } else if (event.content_block.name === 'web_search') {
+                toolMessage = `\n\n🔍 **Searching the web...**`
+              } else if (event.content_block.name === 'perplexity_deep_research') {
+                toolMessage = `\n\n🔬 **Conducting deep research...**`
+              } else if (event.content_block.name === 'perplexity_reasoning_pro') {
+                toolMessage = `\n\n🧠 **Analyzing with advanced reasoning...**`
+              } else if (event.content_block.name === 'perplexity_sonar_pro') {
+                toolMessage = `\n\n📡 **Searching with Sonar Pro...**`
+              } else {
+                toolMessage = `\n\n🔧 **Using ${event.content_block.name}...**`
+              }
+              
+              fullContent += toolMessage
               setCurrentStreamingMessage(fullContent)
+              
+              // Clear browser actions when browser_use tool is detected
+              if (event.content_block.name === 'browser_use') {
+                console.log('Browser-use tool detected, waiting for live URL...')
+                // Clear previous browser actions
+                setBrowserActions([])
+                // Don't open the panel yet - wait for the live URL to come in browser_live_url event
+              }
+            }
+            // Handle browser live URL - IMMEDIATE!
+            else if (event.type === 'browser_live_url') {
+              console.log('BROWSER LIVE URL RECEIVED:', event.live_url)
+              
+              // Skip if we already have this URL to avoid redundant updates
+              if (agentState.liveUrl === event.live_url) {
+                console.log('LiveURL already set, skipping update')
+                continue
+              }
+              
+              // Open panel with URL in one operation for faster rendering
+              if (!agentState.isActive) {
+                console.log('Opening browser panel with LiveURL:', event.live_url)
+                startAgent('Claude is using browser', event.live_url)
+              } else {
+                // Only update URL if panel already open
+                updateUrl(event.live_url)
+                console.log('Browser panel already open, LiveURL updated to:', event.live_url)
+              }
             }
             // Handle tool results
             else if (event.type === 'tool_result') {
               console.log(`Tool ${event.tool_name} completed:`, event.result)
-              const resultText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result, null, 2)
-              fullContent += `\n\n✅ Tool result: ${resultText}`
+              
+              // Format tool results nicely
+              let formattedResult = ''
+              
+              if (event.tool_name === 'browser_use') {
+                const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
+                
+                // Update LiveURL IMMEDIATELY if browser_use tool returns one
+                if (result.live_url) {
+                  console.log('IMMEDIATE: Updating LiveURL from browser_use result:', result.live_url)
+                  
+                  // Open panel AND update URL in one go for faster rendering
+                  if (!agentState.isActive) {
+                    console.log('IMMEDIATE: Opening browser panel with live URL:', result.live_url)
+                    startAgent('Claude is using browser', result.live_url)
+                  } else {
+                    // Only update URL if panel already open
+                    updateUrl(result.live_url)
+                  }
+                }
+                
+                // Parse browser actions from the result
+                if (result.success && result.result) {
+                  const cleanResult = result.result
+                  
+                  // Parse all ActionResults to build timeline
+                  const actionRegex = /ActionResult\([^)]+\)/g
+                  const actionMatches = cleanResult.matchAll(actionRegex)
+                  
+                  const newActions = []
+                  for (const match of actionMatches) {
+                    const actionStr = match[0]
+                    
+                    // Extract action details
+                    const extractedContent = actionStr.match(/extracted_content='([^']*(?:\\'[^']*)*)'/)
+                    const longTermMemory = actionStr.match(/long_term_memory='([^']*(?:\\'[^']*)*)'/)
+                    const isDone = actionStr.includes('is_done=True')
+                    
+                    const content = (extractedContent?.[1] || longTermMemory?.[1] || '')
+                      .replace(/\\n/g, '\n')
+                      .replace(/\\'/g, "'")
+                    
+                    // Determine action type and create timeline entry
+                    let actionType = 'search'
+                    let description = content.substring(0, 100)
+                    let details = content
+                    let url = null
+                    
+                    if (content.includes('Navigated to')) {
+                      actionType = 'navigate'
+                      const urlMatch = content.match(/Navigated to (.+)/)
+                      url = urlMatch?.[1]
+                      description = `Navigated to ${url || 'page'}`
+                    } else if (content.includes('Clicked')) {
+                      actionType = 'click'
+                      description = content
+                    } else if (content.includes('Extracted content')) {
+                      actionType = 'extract'
+                      description = 'Extracted page content'
+                      // Try to parse the JSON content
+                      try {
+                        const jsonMatch = content.match(/\{[\s\S]*\}/)
+                        if (jsonMatch) {
+                          const parsed = JSON.parse(jsonMatch[0])
+                          details = JSON.stringify(parsed, null, 2)
+                        }
+                      } catch (e) {
+                        // Keep original if parsing fails
+                      }
+                    } else if (content.includes('Switched to tab')) {
+                      actionType = 'switch_tab'
+                      description = content
+                    } else if (isDone) {
+                      actionType = 'complete'
+                      description = 'Task completed'
+                      details = content
+                    }
+                    
+                    if (content && content.length > 0) {
+                      newActions.push({
+                        id: `action-${Date.now()}-${Math.random()}`,
+                        type: actionType,
+                        description: description.substring(0, 100),
+                        timestamp: new Date(),
+                        details: details.length > 100 ? details : null,
+                        url: url,
+                        success: !actionStr.includes('error=')
+                      })
+                    }
+                  }
+                  
+                  // Update browser actions
+                  setBrowserActions(prev => [...prev, ...newActions])
+                  
+                  // Look for the last ActionResult with is_done=True
+                  const isDoneMatch = cleanResult.match(/ActionResult\(is_done=True[^)]*extracted_content='([^']*(?:\\'[^']*)*)'[^)]*\)/)
+                  
+                  if (isDoneMatch && isDoneMatch[1]) {
+                    // Clean up the extracted content
+                    let extractedContent = isDoneMatch[1]
+                      .replace(/\\n/g, '\n')  // Convert \n to actual newlines
+                      .replace(/\\'/g, "'")   // Convert \' to '
+                      .replace(/\s*-\s*\d+\s*more\s*characters$/, '') // Remove "- 1831 more characters" suffix
+                    
+                    formattedResult = `\n\n✅ **Browser task completed**\n\n${extractedContent}`
+                  } else {
+                    // Try to find any meaningful text in the mess
+                    const patterns = [
+                      /Here is.*?(?=\n\nAttachments:|$)/s,  // Look for "Here is..." explanations
+                      /extracted_content='([^']+)'/,         // Any extracted content
+                      /long_term_memory='([^']+)'/,          // Memory content
+                    ]
+                    
+                    let found = false
+                    for (const pattern of patterns) {
+                      const match = cleanResult.match(pattern)
+                      if (match && match[1] || match && match[0]) {
+                        const content = match[1] || match[0]
+                        formattedResult = `\n\n✅ **Browser task completed**\n\n${content.replace(/\\n/g, '\n').replace(/\\'/g, "'")}`
+                        found = true
+                        break
+                      }
+                    }
+                    
+                    if (!found) {
+                      formattedResult = `\n\n✅ **Browser task completed**`
+                    }
+                  }
+                } else if (!result.success) {
+                  formattedResult = `\n\n❌ **Browser task failed**`
+                  if (result.error) {
+                    formattedResult += `\n\nError: ${result.error}`
+                  }
+                } else {
+                  formattedResult = `\n\n✅ **Browser task completed**`
+                }
+              } else if (event.tool_name === 'web_search') {
+                const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
+                formattedResult = `\n\n🔍 **Web search completed**`
+                if (result.results && Array.isArray(result.results)) {
+                  formattedResult += `\n\nFound ${result.results.length} results`
+                }
+              } else if (event.tool_name === 'perplexity_deep_research' || 
+                         event.tool_name === 'perplexity_reasoning_pro' || 
+                         event.tool_name === 'perplexity_sonar_pro') {
+                // For Perplexity tools, format the response with markdown
+                let icon = '🔬'
+                let title = 'Deep Research'
+                if (event.tool_name === 'perplexity_reasoning_pro') {
+                  icon = '🧠'
+                  title = 'Advanced Reasoning'
+                } else if (event.tool_name === 'perplexity_sonar_pro') {
+                  icon = '📡'
+                  title = 'Sonar Search'
+                }
+                
+                // Parse result to get content and format it
+                try {
+                  const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
+                  if (result.error) {
+                    formattedResult = `\n\n❌ **${title} failed**: ${result.error}`
+                  } else if (result.content) {
+                    // Show the completion in main content
+                    formattedResult = `\n\n${icon} **${title} completed**`
+                    
+                    // Add the full formatted content to Claude's reasoning/thinking
+                    let reasoningContent = `\n\n## ${title} Results\n\n${result.content}`
+                    
+                    // Add citations if available
+                    if (result.citations && result.citations.length > 0) {
+                      reasoningContent += '\n\n### Citations\n'
+                      result.citations.forEach((citation, index) => {
+                        reasoningContent += `${index + 1}. ${citation}\n`
+                      })
+                    }
+                    
+                    // Update the reasoning content
+                    fullReasoning += reasoningContent
+                    setCurrentReasoning(fullReasoning)
+                  } else {
+                    formattedResult = `\n\n${icon} **${title} completed**`
+                  }
+                } catch (e) {
+                  // If we can't parse, just show completion
+                  formattedResult = `\n\n${icon} **${title} completed**`
+                }
+              } else {
+                // Default formatting for other tools
+                const resultText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result, null, 2)
+                formattedResult = `\n\n✅ **${event.tool_name} completed**`
+                if (resultText.length > 300) {
+                  formattedResult += `\n\n${resultText.substring(0, 300)}...`
+                } else {
+                  formattedResult += `\n\n${resultText}`
+                }
+              }
+              
+              fullContent += formattedResult
               setCurrentStreamingMessage(fullContent)
             }
             // Handle tool errors
@@ -361,11 +644,36 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               fullContent += `\n\n❌ Tool error: ${event.error}`
               setCurrentStreamingMessage(fullContent)
             }
-            // Handle message completion
-            else if (event.type === 'message_stop' || event.type === 'message_delta') {
-              if (event.usage) {
-                setReasoningTokens(event.usage.reasoning_tokens || 0)
+            // Handle message delta with usage information
+            else if (event.type === 'message_delta' && event.usage) {
+              // Just use the output tokens from the API
+              // Thinking tokens are included in the total output_tokens
+              if (event.usage.output_tokens) {
+                // For now, we'll just show a placeholder or hide the token count
+                // since we can't isolate thinking tokens from regular output tokens
+                setReasoningTokens(0)
               }
+            }
+            // Handle continuation after tool use
+            else if (event.type === 'message_start_continuation') {
+              console.log("Continuing message after tool use")
+              // Don't reset the message - just continue adding to it
+            }
+            // Handle agent status updates
+            else if (event.type === 'agent_status') {
+              console.log("Agent status:", event.data)
+              // Show status in UI
+              if (event.data?.status === 'executing_tools') {
+                fullContent += `\n\n⚙️ **${event.data.message || 'Processing tool requests...'}**`
+                setCurrentStreamingMessage(fullContent)
+              } else if (event.data?.status === 'thinking') {
+                fullContent += `\n\n💭 **${event.data.message || 'Analyzing results...'}**`
+                setCurrentStreamingMessage(fullContent)
+              }
+            }
+            // Handle message completion
+            else if (event.type === 'message_stop') {
+              console.log("Message completed", event.data?.final ? "(final)" : "")
             }
             
             // Update the assistant message
@@ -402,19 +710,6 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
     }
   }
 
-  const checkIfRequiresCUA = (message: string): boolean => {
-    const cuaTriggers = [
-      "research",
-      "look up",
-      "find information",
-      "check reviews",
-      "verify",
-      "browse",
-      "search online",
-      "deep research",
-    ]
-    return cuaTriggers.some((trigger) => message.toLowerCase().includes(trigger))
-  }
 
   const renderAgentInterface = () => {
     // Show deep research progress when in deep research mode
@@ -459,6 +754,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             task={agentState.currentTask || undefined}
             liveUrl={agentState.liveUrl || undefined}
             isMobile={true}
+            browserActions={browserActions}
           />
 
           <div className="transition-all duration-500">
@@ -521,22 +817,33 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 ) : (
                   <div className="space-y-6">
                     {isProcessing && (
-                      <AgentStatusIndicator 
-                        currentAgent={{ 
-                          type: "general", 
-                          name: isDeepResearch ? "Deep Research Agent" : "Claude Sonnet 4", 
-                          description: isDeepResearch ? "Conducting comprehensive research..." : "Processing your request..." 
-                        }} 
-                        status="processing" 
-                      />
+                      <>
+                        {currentReasoning && (
+                          <ThinkingView 
+                            reasoning={currentReasoning} 
+                            tokenCount={reasoningTokens}
+                            isStreaming={true}
+                            className="mb-4"
+                          />
+                        )}
+                        <AgentStatusIndicator 
+                          currentAgent={{ 
+                            type: "general", 
+                            name: isDeepResearch ? "Deep Research Agent" : "Claude Sonnet 4", 
+                            description: isDeepResearch ? "Conducting comprehensive research..." : "Processing your request..." 
+                          }} 
+                          status="processing" 
+                        />
+                      </>
                     )}
 
                     {messages.map((msg, i) => (
                       <div key={i} className="animate-slide-up">
                         {msg.role === "assistant" && msg.reasoning && (
-                          <ReasoningDisplay 
+                          <ThinkingView 
                             reasoning={msg.reasoning} 
                             tokenCount={msg.reasoningTokens || 0}
+                            isStreaming={false}
                             className="mb-4"
                           />
                         )}
@@ -556,12 +863,9 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                             <Button
                               variant="default"
                               size="sm"
-                              onClick={() => {
-                                // Directly handle the approval
-                                const savedInput = inputValue
-                                setInputValue("Looks good, run it")
-                                handleSendMessage()
-                                setInputValue(savedInput)
+                              onClick={async () => {
+                                // Send the approval message
+                                await handleSendMessage("Looks good, run it")
                               }}
                               className="bg-primary hover:bg-primary/90"
                             >
@@ -600,8 +904,9 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
                       <Textarea
+                        ref={inputRef}
                         value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
+                        onChange={handleInputChange}
                         placeholder="Ask about symptoms, treatments, or find a specialist..."
                         className="w-full text-sm resize-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/70 min-h-[40px] max-h-[100px] border border-border bg-background py-2"
                         rows={1}
@@ -640,7 +945,6 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
 
                   <div className="flex items-center justify-between pt-2 mt-2 border-t border-border">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <PromptBuilderDialog />
                       <Button
                         variant="ghost"
                         size="sm"
@@ -671,6 +975,13 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                           onCheckedChange={(checked) => {
                             console.log("DEEP RESEARCH TOGGLE CHANGED TO:", checked)
                             setIsDeepResearch(checked)
+                            // Clear session when toggling off
+                            if (!checked) {
+                              setDeepResearchSessionId(null)
+                              setDeepResearchUserId(null)
+                              setDeepResearchOutputs({})
+                              setDeepResearchMessages([])
+                            }
                           }}
                           className="data-[state=checked]:bg-primary scale-75"
                         />
@@ -751,22 +1062,33 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               ) : (
                 <div className="space-y-12">
                   {isProcessing && (
-                    <AgentStatusIndicator 
-                      currentAgent={{ 
-                        type: "general", 
-                        name: isDeepResearch ? "Deep Research Agent" : "Claude Sonnet 4", 
-                        description: isDeepResearch ? "Conducting comprehensive research..." : "Processing your request..." 
-                      }} 
-                      status="processing" 
-                    />
+                    <>
+                      {currentReasoning && (
+                        <ThinkingView 
+                          reasoning={currentReasoning} 
+                          tokenCount={reasoningTokens}
+                          isStreaming={true}
+                          className="mb-6"
+                        />
+                      )}
+                      <AgentStatusIndicator 
+                        currentAgent={{ 
+                          type: "general", 
+                          name: isDeepResearch ? "Deep Research Agent" : "Claude Sonnet 4", 
+                          description: isDeepResearch ? "Conducting comprehensive research..." : "Processing your request..." 
+                        }} 
+                        status="processing" 
+                      />
+                    </>
                   )}
 
                   {messages.map((msg, i) => (
                     <div key={i} className="animate-slide-up">
                       {msg.role === "assistant" && msg.reasoning && (
-                        <ReasoningDisplay 
+                        <ThinkingView 
                           reasoning={msg.reasoning} 
                           tokenCount={msg.reasoningTokens || 0}
+                          isStreaming={false}
                           className="mb-6"
                         />
                       )}
@@ -834,8 +1156,9 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 <div className="flex items-end gap-4">
                   <div className="flex-1">
                     <Textarea
+                      ref={inputRef}
                       value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
+                      onChange={handleInputChange}
                       placeholder="Ask about symptoms, treatments, or find a specialist..."
                       className="w-full text-lg resize-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/70 min-h-[60px] opacity-100 border-solid border border-border bg-background leading-10 text-foreground"
                       rows={1}
@@ -874,7 +1197,6 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
 
                 <div className="flex items-center justify-between pt-4 mt-4 border-t border-border">
                   <div className="flex items-center gap-6">
-                    <PromptBuilderDialog />
                     <Button
                       variant="ghost"
                       size="sm"
@@ -905,6 +1227,13 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                         onCheckedChange={(checked) => {
                           console.log("DEEP RESEARCH TOGGLE CHANGED TO (DESKTOP):", checked)
                           setIsDeepResearch(checked)
+                          // Clear session when toggling off
+                          if (!checked) {
+                            setDeepResearchSessionId(null)
+                            setDeepResearchUserId(null)
+                            setDeepResearchOutputs({})
+                            setDeepResearchMessages([])
+                          }
                         }}
                         className="data-[state=checked]:bg-primary shadow-xl"
                       />
@@ -921,6 +1250,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             task={agentState.currentTask || undefined}
             liveUrl={agentState.liveUrl || undefined}
             isMobile={false}
+            browserActions={browserActions}
           />
         </div>
       </div>
