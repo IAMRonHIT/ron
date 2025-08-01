@@ -318,7 +318,7 @@ export default function HealthCopilot() {
           apiMessages.push({ role: "user", content: messageToSend })
 
           // Determine which tools to enable based on context
-          const tools: string[] = ["text_editor", "browser_use", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro"]
+          const tools: string[] = ["text_editor", "create_browser_session", "browser_use", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro"]
           if (messageToSend.toLowerCase().includes("bash") || messageToSend.toLowerCase().includes("command")) {
             tools.push("bash")
           }

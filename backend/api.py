@@ -68,7 +68,8 @@ except ImportError as e:
 # Deep Research Agent Integration (optional)
 try:
     # Import using the wrapper which handles all the path and import logic
-    from deep_research_wrapper import deep_research_root_agent, DEEP_RESEARCH_AVAILABLE
+    from deep_research_agent import root_agent as deep_research_root_agent
+    DEEP_RESEARCH_AVAILABLE = True
     
     if DEEP_RESEARCH_AVAILABLE:
         # Import ADK components needed for the runner
@@ -90,6 +91,24 @@ except Exception as e:
     logger.error(f"Unexpected error loading Deep Research Agent: {e}")
     DEEP_RESEARCH_AVAILABLE = False
     deep_research_root_agent = None
+
+# Agent stage mapping for human-readable names
+AGENT_STAGES = {
+    "plan_generator": "📝 Planning Research Strategy", 
+    "section_planner": "📋 Designing Report Structure",
+    "enhanced_section_researcher": "🔍 Deep Research Phase",
+    "research_evaluator": "✅ Quality Review",
+    "enhanced_search_executor": "🔎 Enhanced Research",
+    "escalation_checker": "⚡ Quality Check",
+    "section_expander": "📚 Expanding Research Findings",
+    "report_composer_early_sections": "📄 Writing Foundation (Sections 1-4)",
+    "report_composer_later_sections": "📄 Writing Analysis (Sections 5+)",
+    "report_merger": "🔗 Merging Report Sections",
+    "report_composer_with_citations": "📄 Writing Final Report",
+    "interactive_planner_agent": "🤖 Research Assistant",
+    "research_pipeline": "🚀 Research Pipeline",
+    "iterative_refinement_loop": "🔄 Refinement Process"
+}
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -148,8 +167,8 @@ class ChatRequest(BaseModel):
     enable_citations: bool = True
     stream: bool = False
     tools: List[str] = Field(
-        default_factory=lambda: ["bash", "code_execution", "computer", "text_editor", "web_search", "perplexity_sonar_pro"],
-        description="List of tools to enable. Available tools: bash, code_execution, computer, text_editor, web_search, browser_use, perplexity_deep_research, perplexity_reasoning_pro, perplexity_sonar_pro"
+        default_factory=lambda: ["bash", "code_execution", "computer", "text_editor", "web_search", "create_browser_session", "browser_use", "perplexity_sonar_pro", "clinical_operations"],
+        description="List of tools to enable. Available tools: bash, code_execution, computer, text_editor, web_search, create_browser_session, browser_use, perplexity_deep_research, perplexity_reasoning_pro, perplexity_sonar_pro, clinical_operations"
     )
 
 
@@ -220,6 +239,24 @@ uploaded_files: Dict[str, str] = {}
 
 # App constants for deep research
 APP_NAME = "deep_research_app"
+
+# Simple AGENT_STAGES mapping to track which agent is currently running
+AGENT_STAGES = {
+    "medical_researcher": "Medical Research",
+    "deep_reasoning_researcher": "Deep Analysis", 
+    "hybrid_medical_researcher": "Hybrid Analysis",
+    "sonar_pro_researcher": "Web Search",
+    "sonar_reasoning_researcher": "Reasoning Analysis",
+    "sonar_deep_research_agent": "Deep Research",
+    "browser_scraping_researcher": "Browser Research",
+    "browser_initial_researcher": "Initial Browser Research",
+    "fda_drug_researcher": "FDA Research",
+    "browser_mcp_deep_researcher": "Advanced Browser Research",
+    "research_coordinator": "Research Coordination",
+    "quality_evaluator": "Quality Evaluation",
+    "report_generator": "Report Generation",
+    "unknown": "Processing"
+}
 
 # In-memory session store for browser-use integration (replace with Redis/DB for production)
 browser_sessions: Dict[str, Dict] = {}
@@ -383,10 +420,12 @@ async def root():
                 "text_editor"
             ],
             "custom_tools": [
+                "create_browser_session",
                 "browser_use",
                 "perplexity_deep_research",
                 "perplexity_reasoning_pro",
-                "perplexity_sonar_pro"
+                "perplexity_sonar_pro",
+                "clinical_operations"
             ],
             "features": [
                 "prompt_caching",
@@ -463,7 +502,17 @@ async def chat(request: ChatRequest):
                 native_tools.append(tool)
             elif TOOLS_AVAILABLE:
                 # Check if it's a custom tool we support
-                if tool in ["browser", "browser_use", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro"]:
+                fda_tools = [
+                    "searchDrugLabel", "searchAdverseEffects", "getSpecialPopulations",
+                    "getBoxedWarning", "getDrugInteractions", "getAbuse", "getAbuseTable",
+                    "getActiveIngredient", "getAdverseReactions", "getClinicalPharmacology",
+                    "getContraindications", "getDescription", "getDosageAndAdministration",
+                    "getWarnings", "getPregnancy", "getPediatricUse", "getGeriatricUse",
+                    "getIndicationsAndUsage", "getMechanismOfAction", "getOverdosage",
+                    "getPharmacokinetics", "getControlledSubstance", "getNursingMothers"
+                ]
+                
+                if tool in ["browser", "browser_use", "create_browser_session", "perplexity_deep_research", "perplexity_reasoning_pro", "perplexity_sonar_pro", "clinical_operations"] + fda_tools:
                     # Get tool definitions
                     tool_defs = get_tool_definitions_for_claude()
                     # Handle browser tool aliases
@@ -845,6 +894,11 @@ Please:
         message_text = request.message if request.message else ""
         logger.info(f"Message text: '{message_text}' (type: {type(message_text)})")
         
+        # Validate message text
+        if not isinstance(message_text, str):
+            logger.error(f"Invalid message type: {type(message_text)}")
+            raise HTTPException(status_code=400, detail="Message must be a string")
+            
         message = genai_types.Content(
             role="user",
             parts=[genai_types.Part(text=message_text)]
@@ -866,6 +920,13 @@ Please:
                     if event_count % 10 == 0:
                         logger.info(f"Processed {event_count} events from deep research agent")
                     
+                    # Log event details for debugging
+                    logger.debug(f"Event {event_count}: type={type(event)}, hasattr(content)={hasattr(event, 'content')}")
+                    
+                    # Get author and map to human-readable stage
+                    author = getattr(event, 'author', 'unknown')
+                    stage = AGENT_STAGES.get(author, author)
+                    
                     # Convert event to format expected by frontend
                     event_data = {
                         "content": None,
@@ -874,7 +935,8 @@ Please:
                             "promptTokenCount": 0,
                             "totalTokenCount": 0
                         },
-                        "author": getattr(event, 'author', 'unknown'),
+                        "author": author,
+                        "stage": stage,  # Human-readable stage name
                         "actions": {
                             "stateDelta": {},
                             "artifactDelta": {},
@@ -885,26 +947,41 @@ Please:
                         "timestamp": datetime.now().timestamp()
                     }
                     
+                    # Determine event type
+                    event_type = "message"
+                    
                     # Add content if available
                     if hasattr(event, 'content') and event.content:
                         # Extract actual text from the content
                         text_content = ""
-                        if hasattr(event.content, 'parts'):
+                        if hasattr(event.content, 'parts') and event.content.parts is not None:
                             for part in event.content.parts:
                                 if hasattr(part, 'text') and part.text is not None:
                                     text_content += str(part.text)
                                 elif hasattr(part, 'function_call') and part.function_call:
                                     # Handle function calls
-                                    if hasattr(part.function_call, 'name') and part.function_call.name:
-                                        text_content += f"[Calling function: {part.function_call.name}]"
+                                    event_type = "tool_use"
+                                    tool_name = getattr(part.function_call, 'name', 'unknown')
+                                    if tool_name == 'google_search':
+                                        text_content += f"🔍 Searching the web..."
+                                    elif 'playwright' in tool_name.lower():
+                                        text_content += f"🌐 Using browser to visit scholarly sources..."
                                     else:
-                                        text_content += "[Calling function]"
+                                        text_content += f"🛠️ Using tool: {tool_name}"
                                 elif hasattr(part, 'function_response') and part.function_response:
                                     # Handle function responses
+                                    event_type = "tool_result"
                                     if hasattr(part.function_response, 'response') and part.function_response.response and 'result' in part.function_response.response:
-                                        text_content += part.function_response.response['result']
+                                        result = part.function_response.response['result']
+                                        # Truncate long results
+                                        if result and len(str(result)) > 500:
+                                            text_content += str(result)[:500] + "..."
+                                        elif result:
+                                            text_content += str(result)
+                                        else:
+                                            text_content += "✓ Tool completed"
                                     else:
-                                        text_content += "[Function response received]"
+                                        text_content += "✓ Tool completed"
                         else:
                             text_content = str(event.content)
                         
@@ -912,6 +989,7 @@ Please:
                             "parts": [{"text": text_content}],
                             "role": "model"
                         }
+                        event_data["type"] = event_type
                     
                     # Add state delta information from event actions
                     if hasattr(event, 'actions') and event.actions:

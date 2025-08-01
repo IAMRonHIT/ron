@@ -1,3 +1,0 @@
-This is a temporary test file that will be deleted.
-Created to test browser session cleanup.
-Timestamp: 2025-07-29

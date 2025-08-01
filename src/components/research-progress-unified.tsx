@@ -31,7 +31,9 @@ import {
   Globe,
   MessageSquare,
   Eye,
-  EyeOff
+  EyeOff,
+  Copy,
+  Check
 } from "lucide-react"
 import ReactMarkdown from 'react-markdown'
 import { cn } from "@/lib/utils"
@@ -101,13 +103,6 @@ const stages = [
     description: 'Creating comprehensive research strategy'
   },
   {
-    id: 'browser',
-    label: 'Topic Exploration',
-    icon: Globe,
-    color: 'cyan',
-    description: 'Browser-based initial research'
-  },
-  {
     id: 'outline',
     label: 'Report Structure',
     icon: BookOpen,
@@ -147,6 +142,7 @@ export function ResearchProgressUnified({
   const [editingPlan, setEditingPlan] = useState(false)
   const [editedPlanContent, setEditedPlanContent] = useState('')
   const [showThoughts, setShowThoughts] = useState(false)
+  const [copiedReport, setCopiedReport] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   
   // Panel visibility states
@@ -176,24 +172,6 @@ export function ResearchProgressUnified({
     }
   }, [outputs])
   
-  // Initialize browser sessions when browser findings are available
-  useEffect(() => {
-    if (outputs.browserInitialFindings) {
-      // Handle multiple parallel sessions
-      if (outputs.browserInitialFindings.liveUrls && outputs.browserInitialFindings.liveUrls.length > 0) {
-        const firstSession = outputs.browserInitialFindings.liveUrls[0]
-        startBrowserSession(firstSession.url, firstSession.sessionId, firstSession.task)
-      }
-      // Handle single session
-      else if (outputs.browserInitialFindings.liveUrl && outputs.browserInitialFindings.sessionId) {
-        startBrowserSession(
-          outputs.browserInitialFindings.liveUrl,
-          outputs.browserInitialFindings.sessionId,
-          "Topic Exploration"
-        )
-      }
-    }
-  }, [outputs.browserInitialFindings, startBrowserSession])
   
   // Process thought messages for browser agent
   useEffect(() => {
@@ -286,7 +264,6 @@ export function ResearchProgressUnified({
   useEffect(() => {
     if (isProcessing) {
       if (!outputs.plan) setActiveStage('plan')
-      else if (!outputs.browserInitialFindings) setActiveStage('browser')
       else if (!outputs.outline) setActiveStage('outline')
       else if (!outputs.findings) setActiveStage('research')
       else if (!outputs.evaluation) setActiveStage('evaluation')
@@ -296,28 +273,13 @@ export function ResearchProgressUnified({
     }
   }, [isProcessing, outputs])
   
-  // Auto-close browser panel when browser research completes
-  useEffect(() => {
-    if (outputs.browserInitialFindings && outputs.outline && visiblePanels.has('browser')) {
-      // Browser research is done, close the panel
-      setTimeout(() => {
-        setVisiblePanels(prev => {
-          const next = new Set(prev)
-          next.delete('browser')
-          return next
-        })
-      }, 1000) // Brief delay to show completion
-    }
-  }, [outputs.browserInitialFindings, outputs.outline, visiblePanels])
 
   const getStageStatus = (stageId: string): 'completed' | 'active' | 'pending' => {
     switch (stageId) {
       case 'plan':
         return outputs.plan ? 'completed' : isProcessing ? 'active' : 'pending'
-      case 'browser':
-        return outputs.browserInitialFindings ? 'completed' : (outputs.plan && isProcessing) ? 'active' : 'pending'
       case 'outline':
-        return outputs.outline ? 'completed' : (outputs.browserInitialFindings && isProcessing) ? 'active' : 'pending'
+        return outputs.outline ? 'completed' : (outputs.plan && isProcessing) ? 'active' : 'pending'
       case 'research':
         return outputs.findings ? 'completed' : (outputs.outline && isProcessing) ? 'active' : 'pending'
       case 'evaluation':
@@ -517,8 +479,8 @@ export function ResearchProgressUnified({
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.3 }}
                 >
-                  <ScrollArea className="max-h-96">
-                    <div className="p-4 space-y-3">
+                  <ScrollArea className="max-h-[500px] pr-2">
+                    <div className="p-4 space-y-3 pr-2">
                       {messages.map((msg, idx) => (
                         <motion.div
                           key={idx}
@@ -546,8 +508,8 @@ export function ResearchProgressUnified({
                                   </Badge>
                                 )}
                                 {msg.stage && (
-                                  <Badge variant="secondary" className="text-xs capitalize">
-                                    {stages.find(s => s.id === msg.stage)?.label || msg.stage}
+                                  <Badge variant="secondary" className="text-xs">
+                                    {msg.stage}
                                   </Badge>
                                 )}
                                 <span className="text-xs text-muted-foreground">
@@ -679,45 +641,6 @@ export function ResearchProgressUnified({
             </AnimatedPanel>
           )}
 
-          {/* Browser Initial Research */}
-          {outputs.browserInitialFindings && (
-            <AnimatedPanel isOpen={visiblePanels.has('browser')} className="mb-6">
-              <Separator className="mb-8" />
-              <div className="relative">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-cyan-100 dark:bg-cyan-900/30 rounded-lg">
-                    <Globe className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold">Topic Exploration</h3>
-                  <Badge variant="secondary" className="ml-auto">
-                    Browser Research
-                  </Badge>
-                </div>
-                
-                {/* Browser Panel with LiveURL and Thoughts */}
-                <DeepResearchBrowserPanel
-                  liveUrl={outputs.browserInitialFindings.liveUrl}
-                  liveUrls={outputs.browserInitialFindings.liveUrls}
-                  isActive={browserState.isActive || activeStage === 'browser'}
-                  thoughts={browserState.thoughts}
-                  onSessionChange={(index) => {
-                    setActiveBrowserSession(index)
-                    if (outputs.browserInitialFindings?.liveUrls && outputs.browserInitialFindings.liveUrls[index]) {
-                      const session = outputs.browserInitialFindings.liveUrls[index]
-                      startBrowserSession(session.url, session.sessionId, session.task)
-                    }
-                  }}
-                />
-                
-                {/* Research findings */}
-                <div className="mt-6 rounded-xl border border-cyan-200 dark:border-cyan-800 bg-gradient-to-br from-cyan-50 to-white dark:from-cyan-950/20 dark:to-slate-950 p-6">
-                  <pre className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-300">
-                    {outputs.browserInitialFindings.content}
-                  </pre>
-                </div>
-              </div>
-            </AnimatedPanel>
-          )}
 
           {/* Report Outline */}
           {outputs.outline && (
@@ -862,9 +785,32 @@ export function ResearchProgressUnified({
                     <Sparkles className="w-5 h-5" />
                   </div>
                   <h3 className="text-lg font-semibold">Final Research Report</h3>
-                  <Badge className="ml-auto bg-gradient-to-r from-emerald-600 to-emerald-700 text-white">
-                    Complete
-                  </Badge>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(outputs.finalReport || '')
+                        setCopiedReport(true)
+                        setTimeout(() => setCopiedReport(false), 2000)
+                      }}
+                    >
+                      {copiedReport ? (
+                        <>
+                          <Check className="w-4 h-4 mr-1" />
+                          Copied!
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy
+                        </>
+                      )}
+                    </Button>
+                    <Badge className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white">
+                      Complete
+                    </Badge>
+                  </div>
                 </div>
                 
                 <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-gradient-to-br from-emerald-50/50 to-white dark:from-emerald-950/10 dark:to-slate-950 overflow-hidden">
@@ -889,6 +835,62 @@ export function ResearchProgressUnified({
                               <blockquote className="border-l-4 border-slate-300 dark:border-slate-700 pl-4 italic my-4 text-slate-600 dark:text-slate-400">
                                 {children}
                               </blockquote>
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto mb-6">
+                                <table className="min-w-full divide-y divide-slate-300 dark:divide-slate-700">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            thead: ({ children }) => (
+                              <thead className="bg-slate-50 dark:bg-slate-800">
+                                {children}
+                              </thead>
+                            ),
+                            tbody: ({ children }) => (
+                              <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
+                                {children}
+                              </tbody>
+                            ),
+                            tr: ({ children }) => (
+                              <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                {children}
+                              </tr>
+                            ),
+                            th: ({ children }) => (
+                              <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-400">
+                                {children}
+                              </td>
+                            ),
+                            code: ({ children, className }) => {
+                              const match = /language-(\w+)/.exec(className || '')
+                              return match ? (
+                                <pre className="mb-4 p-4 rounded-lg bg-slate-100 dark:bg-slate-800 overflow-x-auto">
+                                  <code className="text-sm font-mono text-slate-800 dark:text-slate-200">
+                                    {children}
+                                  </code>
+                                </pre>
+                              ) : (
+                                <code className="px-1.5 py-0.5 mx-0.5 rounded bg-slate-100 dark:bg-slate-800 text-sm font-mono text-slate-800 dark:text-slate-200">
+                                  {children}
+                                </code>
+                              )
+                            },
+                            strong: ({ children }) => (
+                              <strong className="font-semibold text-slate-900 dark:text-slate-100">
+                                {children}
+                              </strong>
+                            ),
+                            em: ({ children }) => (
+                              <em className="italic text-slate-700 dark:text-slate-300">
+                                {children}
+                              </em>
                             ),
                           }}
                         >
