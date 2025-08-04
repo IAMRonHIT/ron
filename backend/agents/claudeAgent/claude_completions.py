@@ -19,7 +19,7 @@ class ClaudeCompletions:
         self.client = AsyncAnthropic(
             api_key=api_key,
             default_headers={
-                "anthropic-beta": "interleaved-thinking-2025-05-14"
+                "anthropic-beta": "interleaved-thinking-2025-05-14,computer-use-2025-01-24,fine-grained-tool-streaming-2025-05-14"
             }
         )
         self.model = "claude-sonnet-4-20250514"
@@ -136,6 +136,21 @@ class ClaudeCompletions:
   * Academic or clinical research requiring depth
   * Detailed analysis requiring extensive documentation
   * When you need the most thorough information possible
+
+* **Computer Use Tool** (`computer_use`)
+  Control a computer desktop with interleaved thinking for advanced automation:
+  
+  * Install and use Claude Code CLI to generate healthcare tools
+  * Automate desktop applications and web browsers
+  * Take screenshots and interact with GUI elements
+  * Execute complex multi-step workflows with reasoning between actions
+  
+  Parameters:
+  - `task`: Description of what to accomplish on the desktop
+  - `max_iterations`: Maximum thinking-action cycles (default: 10)
+  - `thinking_budget`: Token budget for reasoning (default: 10000)
+  
+  Example usage: "Use computer_use to install Claude Code CLI and create a medication cost calculator"
   
   **PARALLEL TOOL EXECUTION**: When you need information from multiple sources, call multiple tools in parallel to save time. For example:
   - If researching medication costs AND side effects, call both perplexity_sonar_pro and perplexity_reasoning_pro simultaneously
@@ -260,6 +275,7 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                 request_params["stream"] = True
                 
                 # Use beta.messages.create for streaming with interleaved thinking
+                # Include fine-grained tool streaming for better performance
                 stream = await self.client.beta.messages.create(**request_params)
                 
                 # Track content blocks and stop reason
@@ -447,6 +463,32 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                     # Execute the tool
                                     tool_result = await execute_tool(tool_name, tool_input)
                                     logger.info(f"Tool {tool_name} executed successfully")
+                                    
+                                    # For computer_use tool, stream screenshots and actions
+                                    # Note: The computer use tool itself is now using streaming internally
+                                    # to avoid the "Streaming is strongly recommended" timeout error
+                                    if tool_name == 'computer_use' and isinstance(tool_result, dict):
+                                        if tool_result.get('screenshots'):
+                                            for i, screenshot in enumerate(tool_result['screenshots']):
+                                                yield {
+                                                    'type': 'computer_screenshot',
+                                                    'screenshot': screenshot,
+                                                    'index': i,
+                                                    'total': len(tool_result['screenshots'])
+                                                }
+                                        
+                                        if tool_result.get('actions_taken'):
+                                            yield {
+                                                'type': 'computer_actions',
+                                                'actions': tool_result['actions_taken']
+                                            }
+                                        
+                                        if tool_result.get('thinking_logs'):
+                                            for thought in tool_result['thinking_logs']:
+                                                yield {
+                                                    'type': 'computer_thinking',
+                                                    'thought': thought
+                                                }
                                     
                                     # For browser_use or reuse_browser_session, also yield live URL if it's in the result
                                     if (tool_name in ['browser_use', 'reuse_browser_session']) and isinstance(tool_result, dict) and 'live_url' in tool_result:

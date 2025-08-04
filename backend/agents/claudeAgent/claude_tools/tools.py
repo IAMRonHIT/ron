@@ -944,6 +944,29 @@ TOOLS = {
                 "default": 20
             }
         }
+    },
+    "computer_use": {
+        "function": None,  # Will be imported dynamically
+        "description": "Control computer desktop with interleaved thinking for healthcare applications. Can install Claude Code CLI, create tools, and automate desktop workflows.",
+        "parameters": {
+            "task": {
+                "type": "string",
+                "description": "Task to perform on the desktop (e.g., 'Install Claude Code CLI and create medication tracker')",
+                "required": True
+            },
+            "max_iterations": {
+                "type": "integer",
+                "description": "Maximum number of thinking-action cycles",
+                "required": False,
+                "default": 10
+            },
+            "thinking_budget": {
+                "type": "integer",
+                "description": "Token budget for interleaved thinking",
+                "required": False,
+                "default": 10000
+            }
+        }
     }
 }
 
@@ -1020,6 +1043,19 @@ async def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, 
     """Execute a tool by name with given input"""
     if tool_name not in TOOLS:
         return {"error": f"Unknown tool: {tool_name}"}
+    
+    # Handle computer_use tool with dynamic import
+    if tool_name == "computer_use":
+        try:
+            from .computer_use.computer_use_tool import execute_computer_use
+            result = await execute_computer_use(tool_input)
+            return result
+        except ImportError as e:
+            logger.error(f"Failed to import computer_use tool: {str(e)}")
+            return {"error": f"Computer use tool not available: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Error executing computer_use tool: {str(e)}")
+            return {"error": f"Computer use execution failed: {str(e)}"}
     
     tool_func = TOOLS[tool_name]["function"]
     

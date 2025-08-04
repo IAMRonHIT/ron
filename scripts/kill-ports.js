@@ -5,7 +5,7 @@ const util = require('util');
 const execAsync = util.promisify(exec);
 
 // Ports used by the ron-ai application
-const PORTS = [3000, 8000]; // Frontend (Next.js), Backend (Python API)
+const PORTS = [3000, 8000, 5900, 6080]; // Frontend (Next.js), Backend (Python API), VNC, NoVNC
 
 async function killPort(port) {
   try {
@@ -56,14 +56,37 @@ async function killPort(port) {
   }
 }
 
+async function cleanupDocker() {
+  console.log('🐳 Checking for existing Claude Computer Use container...');
+  try {
+    // Check if container exists
+    const { stdout } = await execAsync('docker ps -aq -f name=claude-computer-use');
+    if (stdout.trim()) {
+      console.log('⚠️  Found existing container, stopping it...');
+      await execAsync('docker stop claude-computer-use');
+      await execAsync('docker rm claude-computer-use');
+      console.log('✅ Cleaned up existing Docker container');
+    } else {
+      console.log('✅ No existing container found');
+    }
+  } catch (error) {
+    // Docker might not be running or installed
+    console.log('ℹ️  Docker cleanup skipped (Docker may not be running)');
+  }
+}
+
 async function killAllPorts() {
-  console.log('🧹 Cleaning up ports before starting ron-ai services...\n');
+  console.log('🧹 Cleaning up ports and Docker before starting ron-ai services...\n');
   
+  // Clean up Docker first
+  await cleanupDocker();
+  
+  // Then clean up ports
   for (const port of PORTS) {
     await killPort(port);
   }
   
-  console.log('\n🎉 All ports cleaned up! Ready to start ron-ai services.\n');
+  console.log('\n🎉 All ports and containers cleaned up! Ready to start ron-ai services.\n');
 }
 
 // Run if called directly

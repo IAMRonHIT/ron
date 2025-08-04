@@ -343,6 +343,7 @@ export default function HealthCopilot() {
             "text_editor",
             "create_browser_session",
             "browser_use",
+            "computer_use",  // Computer desktop control tool
             "perplexity_deep_research",
             "perplexity_reasoning_pro",
             "perplexity_sonar_pro",
@@ -469,6 +470,8 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 toolMessage = `\n\n🧠 **Analyzing with advanced reasoning...**`
               } else if (event.content_block.name === 'perplexity_sonar_pro') {
                 toolMessage = `\n\n📡 **Searching with Sonar Pro...**`
+              } else if (event.content_block.name === 'computer_use') {
+                toolMessage = `\n\n🖥️ **Launching computer control...**`
               } else {
                 toolMessage = `\n\n🔧 **Using ${event.content_block.name}...**`
               }
@@ -652,6 +655,14 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 if (result.results && Array.isArray(result.results)) {
                   formattedResult += `\n\nFound ${result.results.length} results`
                 }
+              } else if (event.tool_name === 'computer_use') {
+                const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
+                formattedResult = `\n\n🖥️ **Computer control task ${result.task_completed ? 'completed' : 'in progress'}**`
+                if (result.final_result) {
+                  formattedResult += `\n\n${result.final_result}`
+                } else if (result.error) {
+                  formattedResult += `\n\nError: ${result.error}`
+                }
               } else if (event.tool_name?.startsWith('perplexity_') ||
                          event.tool_name?.startsWith('pubmed_') ||
                          event.tool_name?.startsWith('search') ||
@@ -719,6 +730,61 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             else if (event.type === 'message_start_continuation') {
               console.log("Continuing message after tool use")
               // Don't reset the message - just continue adding to it
+            }
+            // Handle computer_use screenshots
+            else if (event.type === 'computer_screenshot') {
+              console.log('Computer screenshot received:', event.index, 'of', event.total)
+              
+              // Open the agent panel if not already open
+              if (!agentState.isActive) {
+                console.log('Opening computer use panel for screenshots')
+                startAgent('Computer Use - Taking Screenshots', undefined)
+              }
+              
+              // Add screenshot to browser actions timeline
+              setBrowserActions(prev => [...prev, {
+                id: `screenshot-${Date.now()}-${event.index}`,
+                type: 'screenshot',
+                description: `Screenshot ${event.index + 1} of ${event.total}`,
+                timestamp: new Date(),
+                screenshot: event.screenshot,
+                success: true
+              }])
+            }
+            // Handle computer_use actions
+            else if (event.type === 'computer_actions') {
+              console.log('Computer actions received:', event.actions)
+              
+              // Convert computer actions to browser timeline format
+              const newActions = event.actions.map((action: any, index: number) => ({
+                id: `computer-action-${Date.now()}-${index}`,
+                type: action.action || 'action',
+                description: action.action === 'screenshot' ? 'Taking screenshot' :
+                           action.action === 'left_click' ? `Clicked at (${action.input?.coordinate?.[0]}, ${action.input?.coordinate?.[1]})` :
+                           action.action === 'type' ? `Typed: ${action.input?.text}` :
+                           action.action === 'key' ? `Pressed key: ${action.input?.key}` :
+                           action.action === 'scroll' ? `Scrolled ${action.input?.scroll_direction}` :
+                           action.action === 'left_click_drag' ? 'Dragged mouse' :
+                           `${action.action}`,
+                timestamp: new Date(),
+                success: true
+              }))
+              
+              setBrowserActions(prev => [...prev, ...newActions])
+            }
+            // Handle computer_use thinking
+            else if (event.type === 'computer_thinking') {
+              console.log('Computer thinking:', event.thought)
+              
+              // Add thinking to timeline
+              setBrowserActions(prev => [...prev, {
+                id: `thinking-${Date.now()}`,
+                type: 'thinking',
+                description: 'Analyzing next action...',
+                details: event.thought,
+                timestamp: new Date(),
+                success: true
+              }])
             }
             // Handle agent status updates
             else if (event.type === 'agent_status') {

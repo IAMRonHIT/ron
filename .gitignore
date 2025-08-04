@@ -10,3 +10,6 @@ backend/.env
 *.json
 backend/*.json
 backend/aethercare-tqine-5e005e537e8f.json
+
+# Certificate files
+*.pem

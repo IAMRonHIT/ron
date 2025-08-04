@@ -12,18 +12,24 @@ import {
   ChevronRight,
   Clock,
   Eye,
-  Navigation
+  Navigation,
+  Camera,
+  Brain,
+  Keyboard,
+  Monitor
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface BrowserAction {
   id: string
-  type: 'navigate' | 'click' | 'extract' | 'search' | 'complete' | 'error' | 'switch_tab'
+  type: 'navigate' | 'click' | 'extract' | 'search' | 'complete' | 'error' | 'switch_tab' | 
+        'screenshot' | 'thinking' | 'type' | 'key' | 'scroll' | 'left_click' | 'left_click_drag' | 'action'
   description: string
   timestamp: Date
   details?: string
   url?: string
   success?: boolean
+  screenshot?: string
 }
 
 interface BrowserTimelineProps {
@@ -39,6 +45,7 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
       case 'navigate':
         return <Navigation className="w-4 h-4" />
       case 'click':
+      case 'left_click':
         return <MousePointer className="w-4 h-4" />
       case 'extract':
         return <FileText className="w-4 h-4" />
@@ -50,6 +57,16 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
         return <XCircle className="w-4 h-4" />
       case 'switch_tab':
         return <Eye className="w-4 h-4" />
+      case 'screenshot':
+        return <Camera className="w-4 h-4" />
+      case 'thinking':
+        return <Brain className="w-4 h-4" />
+      case 'type':
+      case 'key':
+        return <Keyboard className="w-4 h-4" />
+      case 'scroll':
+      case 'left_click_drag':
+        return <Monitor className="w-4 h-4" />
       default:
         return <Globe className="w-4 h-4" />
     }
@@ -60,6 +77,7 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
       case 'navigate':
         return 'bg-blue-500 text-white'
       case 'click':
+      case 'left_click':
         return 'bg-purple-500 text-white'
       case 'extract':
         return 'bg-green-500 text-white'
@@ -71,6 +89,16 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
         return 'bg-red-500 text-white'
       case 'switch_tab':
         return 'bg-indigo-500 text-white'
+      case 'screenshot':
+        return 'bg-cyan-500 text-white'
+      case 'thinking':
+        return 'bg-pink-500 text-white'
+      case 'type':
+      case 'key':
+        return 'bg-orange-500 text-white'
+      case 'scroll':
+      case 'left_click_drag':
+        return 'bg-teal-500 text-white'
       default:
         return 'bg-gray-500 text-white'
     }
@@ -133,7 +161,7 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                         {action.description}
                       </p>
-                      {action.details && (
+                      {(action.details || action.screenshot) && (
                         <ChevronRight className={cn(
                           "w-3 h-3 text-gray-400 transition-transform",
                           expandedId === action.id && "rotate-90"
@@ -158,7 +186,7 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
 
                   {/* Expanded details */}
                   <AnimatePresence>
-                    {expandedId === action.id && action.details && (
+                    {expandedId === action.id && (action.details || action.screenshot) && (
                       <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
@@ -167,9 +195,17 @@ export function BrowserTimeline({ actions, isActive }: BrowserTimelineProps) {
                         className="overflow-hidden"
                       >
                         <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
-                          <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                            {action.details}
-                          </pre>
+                          {action.screenshot ? (
+                            <img 
+                              src={`data:image/png;base64,${action.screenshot}`}
+                              alt="Screenshot"
+                              className="w-full rounded border border-gray-200 dark:border-gray-700"
+                            />
+                          ) : (
+                            <pre className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                              {action.details}
+                            </pre>
+                          )}
                         </div>
                       </motion.div>
                     )}

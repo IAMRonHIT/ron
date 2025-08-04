@@ -587,7 +587,7 @@ async def chat(request: ChatRequest):
                 ]
                 
                 other_tools = [
-                    "clinical_operations", "web_search", "execute_code"
+                    "clinical_operations", "web_search", "execute_code", "computer_use"
                 ]
                 
                 all_custom_tools = browser_tools + perplexity_tools + other_tools + fda_tools + pubmed_tools
