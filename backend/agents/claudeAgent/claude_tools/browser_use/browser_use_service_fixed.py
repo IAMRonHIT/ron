@@ -74,12 +74,26 @@ class BrowserUseService:
         if not browserless_token:
             raise ValueError("BROWSERLESS_API_TOKEN environment variable is required")
         
-        # Connect to Browserless via Playwright
+        # Connect to Browserless via Playwright with proper launch parameters
+        import json
+        import urllib.parse
+        
+        # Build proper CDP URL with JSON-encoded launch parameters
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox"
+        ]
+        launch_config = {"args": launch_args}
+        launch_json = json.dumps(launch_config)
+        launch_encoded = urllib.parse.quote(launch_json)
+        
+        cdp_url = f"wss://production-sfo.browserless.io/chrome/stealth?token={browserless_token}&timeout=900000&stealth=true&launch={launch_encoded}"
+        
         from playwright.async_api import async_playwright
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.connect_over_cdp(
-            f"wss://production-sfo.browserless.io/chrome/stealth?token={browserless_token}&timeout=900000"
-        )
+        browser = await playwright.chromium.connect_over_cdp(cdp_url)
         context = browser.contexts[0] if browser.contexts else await browser.new_context()
         page = context.pages[0] if context.pages else await context.new_page()
         
@@ -93,8 +107,7 @@ class BrowserUseService:
         self.playwright = playwright
         self.browser = browser
         
-        # Navigate to about:blank initially
-        await page.goto('about:blank')
+        # Let the browser-use agent decide where to navigate
         
         # Get CDP session from the context for LiveURL generation
         cdp = await context.new_cdp_session(page)
@@ -137,7 +150,7 @@ class BrowserUseService:
             # Create agent with the SAME session instance
             agent = Agent(
                 task=task,
-                llm=ChatOpenAI(model="gpt-4.1", api_key=openai_api_key),
+                llm=ChatOpenAI(model="gpt-5", api_key=openai_api_key),
                 browser_session=session  # Pass the ACTUAL session instance
             )
             

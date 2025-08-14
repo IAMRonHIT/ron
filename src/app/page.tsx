@@ -23,6 +23,12 @@ import { ToolOutputCard } from "@/components/tool-output-card"
 import { ClaudeCodePreview } from "@/components/claude-code-preview"
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { CommandMenu } from "@/components/command-menu"
+import { PromptBuilderDialog } from "@/components/prompt-builder-dialog"
+import { useUserProfile } from "@/hooks/use-user-profile"
+import type { ProviderSearchData, ProviderSearchResult } from "@/lib/types"
+
+import { AgentOrchestration } from "@/components/agent-orchestration"
 
 interface ThinkingData {
   id: string
@@ -33,7 +39,7 @@ interface ThinkingData {
 interface ToolOutputData {
   id: string
   toolName: string
-  content: string
+  content: string | object
   timestamp: Date
   status?: "pending" | "executing" | "completed" | "error"
 }
@@ -44,7 +50,19 @@ interface CodeFileData {
   content: string
 }
 
+interface AgentActivity {
+  id: string
+  type: 'search' | 'fetch' | 'analysis' | 'synthesis' | 'thinking' | 'tool'
+  agent: string
+  description: string
+  status: 'running' | 'completed' | 'error'
+  timestamp: Date
+  details?: any
+  progress?: number
+}
+
 export default function HealthCopilot() {
+  const { userProfile } = useUserProfile()
   const [isDeepResearch, setIsDeepResearch] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState("")
@@ -66,6 +84,13 @@ export default function HealthCopilot() {
   const [currentThinkingId, setCurrentThinkingId] = useState<string | null>(null)
   const [codeFiles, setCodeFiles] = useState<CodeFileData[]>([])
   const [codeOutput, setCodeOutput] = useState<string>("")
+  const [providerSearchData, setProviderSearchData] = useState<ProviderSearchData | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'error' | 'retry'>('connected')
+  const [retryCount, setRetryCount] = useState(0)
+  const [lastFailedMessage, setLastFailedMessage] = useState<string>("")
+  const [agentActivities, setAgentActivities] = useState<AgentActivity[]>([])
+  const [currentOrchestrationAgent, setCurrentOrchestrationAgent] = useState<string | null>(null)
+  const [isAgentOrchestrationActive, setIsAgentOrchestrationActive] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -73,6 +98,11 @@ export default function HealthCopilot() {
 
   useEffect(() => {
     setMounted(true)
+    
+    // Cleanup function to abort streams when component unmounts
+    return () => {
+      claudeAPI.abortAllStreams()
+    }
   }, [])
 
   // Auto-scroll to bottom when new messages arrive
@@ -97,6 +127,13 @@ export default function HealthCopilot() {
   const handleSendMessage = async (messageOverride?: string) => {
     const messageToSend = messageOverride || inputValue
     if (typeof messageToSend === 'string' && messageToSend.trim() && !isProcessing) {
+      // Reset connection status and retry count for new messages
+      if (!messageOverride) {
+        setConnectionStatus('connecting')
+        setRetryCount(0)
+        setLastFailedMessage("")
+      }
+      
       const newMessage: Message = {
         role: "user",
         content: messageToSend,
@@ -115,6 +152,10 @@ export default function HealthCopilot() {
       setThinkingBubbles([])
       setToolOutputs([])
       setCurrentThinkingId(null)
+      // Reset agent orchestration for new message
+      setAgentActivities([])
+      setIsAgentOrchestrationActive(false)
+      setCurrentOrchestrationAgent(null)
 
       try {
         console.log("=== SENDING MESSAGE ===")
@@ -162,6 +203,9 @@ export default function HealthCopilot() {
             sessionId!,  // We know sessionId is not null here due to the check above
             userId!  // We know userId is not null here due to the check above
           )
+          
+          // Set connected status for deep research
+          setConnectionStatus('connected')
           
           console.log("Deep research stream received:", stream)
           
@@ -436,6 +480,9 @@ When helping with healthcare tasks:
 ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with multiple sources and detailed analysis." : ""}`
           })
 
+          // Set connected status once stream starts successfully
+          setConnectionStatus('connected')
+
           let fullContent = ""
           let fullReasoning = ""
           console.log("Starting to parse SSE stream...")
@@ -468,6 +515,19 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             else if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
               console.log(`Tool started: ${event.content_block.name}`)
               
+              // Activate agent orchestration and track activity
+              setIsAgentOrchestrationActive(true)
+              const agentName = getAgentNameFromTool(event.content_block.name)
+              setCurrentOrchestrationAgent(agentName)
+              
+              // Add agent activity
+              const activityId = addAgentActivity({
+                type: mapToolNameToActivityType(event.content_block.name),
+                agent: agentName,
+                description: `Starting ${event.content_block.name}`,
+                status: 'running'
+              })
+              
               // Add tool output with pending status
               const toolId = `tool-${Date.now()}-${event.content_block.name}`
               setToolOutputs(prev => [...prev, {
@@ -477,6 +537,11 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 timestamp: new Date(),
                 status: "executing"
               }])
+              
+              // Store activity ID for later updates
+              setToolOutputs(prev => prev.map(tool => 
+                tool.id === toolId ? { ...tool, activityId } : tool
+              ))
               
               // Clear browser actions when browser_use tool is detected
               if (event.content_block.name === 'browser_use') {
@@ -509,6 +574,22 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             // Handle tool results
             else if (event.type === 'tool_result') {
               console.log(`Tool ${event.tool_name} completed:`, event.result)
+              
+              // Update agent activity to completed
+              const agentName = getAgentNameFromTool(event.tool_name)
+              // Find the most recent running activity for this agent and tool
+              const runningActivity = agentActivities.find(a => 
+                a.agent === agentName && 
+                a.status === 'running' && 
+                a.description.includes(event.tool_name)
+              )
+              if (runningActivity) {
+                updateAgentActivity(runningActivity.id, {
+                  status: 'completed',
+                  description: `Completed ${event.tool_name}`,
+                  details: typeof event.result === 'object' ? event.result : event.result
+                })
+              }
               
               // Create tool output bubble
               const toolId = `tool-${Date.now()}-${event.tool_name}`
@@ -654,6 +735,16 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 if (result.results && Array.isArray(result.results)) {
                   formattedResult += `\n\nFound ${result.results.length} results`
                 }
+              } else if (event.tool_name === 'provider_search') {
+                try {
+                  const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
+                  if (result && result.results) {
+                    setProviderSearchData({ results: result.results, searchQuery: result.searchQuery || '' })
+                  }
+                  formattedResult = `\n\n✅ **Provider search completed**`
+                } catch (e) {
+                  formattedResult = `\n\n❌ **Provider search failed**`
+                }
               } else if (event.tool_name === 'computer_use') {
                 const result = typeof event.result === 'string' ? JSON.parse(event.result) : event.result
                 formattedResult = `\n\n🖥️ **Computer control task ${result.task_completed ? 'completed' : 'in progress'}**`
@@ -724,6 +815,22 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             // Handle tool errors
             else if (event.type === 'tool_error') {
               console.error(`Tool ${event.tool_name} error:`, event.error)
+              
+              // Update agent activity to error state
+              const agentName = getAgentNameFromTool(event.tool_name)
+              const runningActivity = agentActivities.find(a => 
+                a.agent === agentName && 
+                a.status === 'running' && 
+                a.description.includes(event.tool_name)
+              )
+              if (runningActivity) {
+                updateAgentActivity(runningActivity.id, {
+                  status: 'error',
+                  description: `Error in ${event.tool_name}`,
+                  details: event.error
+                })
+              }
+              
               fullContent += `\n\n❌ Tool error: ${event.error}`
               setCurrentStreamingMessage(fullContent)
             }
@@ -832,19 +939,107 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
 
       } catch (error) {
         console.error("Error calling Claude API:", error)
+        
+        // Enhanced error handling for different error types
+        let errorMessage = "I apologize, but I encountered an error while processing your request."
+        let shouldShowRetry = false
+        
+        if (error instanceof Error) {
+          if (error.message.includes('net::ERR_INCOMPLETE_CHUNKED_ENCODING') ||
+              error.message.includes('Network connection interrupted')) {
+            errorMessage = "The connection was interrupted. Please try sending your message again."
+            shouldShowRetry = true
+            setConnectionStatus('error')
+          } else if (error.message.includes('timed out') || 
+                     error.message.includes('aborted')) {
+            errorMessage = "The request took too long to complete. Please try again with a shorter message or check your internet connection."
+            shouldShowRetry = true
+            setConnectionStatus('error')
+          } else if (error.message.includes('Stream failed after')) {
+            errorMessage = "I'm having trouble maintaining a stable connection. Please wait a moment and try again."
+            shouldShowRetry = true
+            setConnectionStatus('error')
+          } else if (error.message.includes('429') || 
+                     error.message.includes('rate limit')) {
+            errorMessage = "I'm currently handling a lot of requests. Please wait a moment and try again."
+            shouldShowRetry = true
+            setConnectionStatus('error')
+          } else if (error.message.includes('500') || 
+                     error.message.includes('502') ||
+                     error.message.includes('503') || 
+                     error.message.includes('504')) {
+            errorMessage = "The server is temporarily unavailable. Please try again in a few moments."
+            shouldShowRetry = true
+            setConnectionStatus('error')
+          } else {
+            setConnectionStatus('error')
+          }
+        }
+        
+        // Store the failed message for retry
+        if (shouldShowRetry) {
+          setLastFailedMessage(messageToSend)
+          setRetryCount(prev => prev + 1)
+        }
+        
         setMessages(prev => [
           ...prev,
           {
             role: "assistant",
-            content: "I apologize, but I encountered an error while processing your request. Please try again.",
+            content: errorMessage + (shouldShowRetry ? " Click the retry button below to try again." : ""),
             timestamp: new Date(),
           }
         ])
+        
+        // Clean up any active streams on error
+        claudeAPI.abortAllStreams()
       } finally {
         setIsProcessing(false)
         setCurrentStreamingMessage("")
         setCurrentReasoning("")
       }
+    }
+  }
+
+  // Helper functions for agent orchestration
+  const addAgentActivity = (activity: Omit<AgentActivity, 'id' | 'timestamp'>) => {
+    const newActivity: AgentActivity = {
+      ...activity,
+      id: `activity-${Date.now()}-${Math.random()}`,
+      timestamp: new Date()
+    };
+    setAgentActivities(prev => [...prev, newActivity]);
+    return newActivity.id;
+  };
+
+  const updateAgentActivity = (id: string, updates: Partial<AgentActivity>) => {
+    setAgentActivities(prev => prev.map(activity => 
+      activity.id === id ? { ...activity, ...updates } : activity
+    ));
+  };
+
+  const mapToolNameToActivityType = (toolName: string): AgentActivity['type'] => {
+    if (toolName.startsWith('pubmed_search')) return 'search';
+    if (toolName.startsWith('pubmed_fetch')) return 'fetch';
+    if (toolName.startsWith('clinical_operations')) return 'synthesis';
+    if (toolName.startsWith('perplexity_')) return 'analysis';
+    if (toolName.startsWith('web_search')) return 'search';
+    return 'tool';
+  };
+
+  const getAgentNameFromTool = (toolName: string): string => {
+    if (toolName.startsWith('pubmed_')) return 'Research Agent';
+    if (toolName.startsWith('clinical_')) return 'Clinical Agent';
+    if (toolName.startsWith('perplexity_')) return 'Analysis Agent';
+    if (toolName.startsWith('web_search')) return 'Web Search Agent';
+    return 'System Agent';
+  };
+
+  const handleRetryMessage = async () => {
+    if (lastFailedMessage && !isProcessing) {
+      setConnectionStatus('retry')
+      console.log(`Retrying message (attempt ${retryCount + 1}):`, lastFailedMessage)
+      await handleSendMessage(lastFailedMessage)
     }
   }
 
@@ -857,7 +1052,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
           messages={deepResearchMessages}
           currentAgent={deepResearchMessages.length > 0 ? deepResearchMessages[deepResearchMessages.length - 1].content : undefined}
           isProcessing={isProcessing}
-          onSendMessage={(message) => {
+          onSendMessage={(message: string) => {
             setInputValue(message)
             handleSendMessage()
           }}
@@ -953,6 +1148,26 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                   </div>
                 ) : (
                   <div className="space-y-6">
+                    {/* Provider Search Interface when results available (mobile) */}
+                    {providerSearchData && (
+                      <ProviderSearchInterface
+                        data={providerSearchData}
+                        userProfile={userProfile as any}
+                        onDeepResearchRequested={(providers: any[]) => {
+                          setIsDeepResearch(true)
+                          setInputValue(`Run deep research comparing: ${providers.map((p:any)=>p.name).join(', ')}`)
+                          handleSendMessage()
+                        }}
+                      />
+                    )}
+                    
+                    {/* Show agent orchestration */}
+                    <AgentOrchestration 
+                      activities={agentActivities}
+                      currentAgent={currentOrchestrationAgent}
+                      isActive={isAgentOrchestrationActive}
+                    />
+                    
                     {/* Show thinking during streaming */}
                     {isProcessing && currentReasoning && (
                       <div className="animate-slide-up mb-4">
@@ -1058,7 +1273,8 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               <div className="max-w-4xl mx-auto">
                 <Card className="bg-card/95 backdrop-blur-xl shadow-2xl border-border/50">
                   <div className="p-4">
-                    <div className="flex items-end gap-3">
+                  <div className="flex items-end gap-3">
+                    <PromptBuilderDialog onSendPrompt={handleSendMessage} />
                       <div className="flex-1">
                         <Textarea
                           ref={inputRef}
@@ -1107,6 +1323,46 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                   </div>
 
                   <div className="flex items-center justify-between pt-2 mt-2 border-t border-border">
+                    {/* Connection Status and Retry Button */}
+                    <div className="flex items-center gap-3">
+                      {connectionStatus === 'connecting' && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                          Connecting...
+                        </div>
+                      )}
+                      {connectionStatus === 'connected' && (
+                        <div className="flex items-center gap-2 text-xs text-green-600">
+                          <div className="w-2 h-2 rounded-full bg-green-500" />
+                          Connected
+                        </div>
+                      )}
+                      {connectionStatus === 'error' && (
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 text-xs text-red-600">
+                            <div className="w-2 h-2 rounded-full bg-red-500" />
+                            Connection Error
+                          </div>
+                          {lastFailedMessage && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleRetryMessage}
+                              disabled={isProcessing}
+                              className="text-xs h-6 px-2"
+                            >
+                              Retry {retryCount > 1 && `(${retryCount})`}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {connectionStatus === 'retry' && (
+                        <div className="flex items-center gap-2 text-xs text-blue-600">
+                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                          Retrying...
+                        </div>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Button
                         variant="ghost"
@@ -1224,6 +1480,19 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                 </div>
               ) : (
                 <div className="space-y-12">
+                  {/* Provider Search Interface when results available */}
+                  {providerSearchData && (
+                    <ProviderSearchInterface
+                      data={providerSearchData}
+                      userProfile={userProfile as any}
+                      onDeepResearchRequested={(providers: ProviderSearchResult[]) => {
+                        // Let user know we're starting deep research
+                        setIsDeepResearch(true)
+                        setInputValue(`Run deep research comparing: ${providers.map(p=>p.name).join(', ')}`)
+                        handleSendMessage()
+                      }}
+                    />
+                  )}
                   {/* Show thinking during streaming */}
                   {isProcessing && currentReasoning && (
                     <div className="animate-slide-up mb-6">
@@ -1348,6 +1617,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               <Card className="bg-card/95 backdrop-blur-xl shadow-2xl border-border/50">
                 <div className="p-6">
                   <div className="flex items-end gap-4">
+                    <PromptBuilderDialog onSendPrompt={handleSendMessage} />
                     <div className="flex-1">
                       <Textarea
                         ref={inputRef}

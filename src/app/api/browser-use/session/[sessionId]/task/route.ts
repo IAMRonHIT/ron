@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 export async function POST(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  request: Request,
+  context: any
 ) {
   try {
     const { task } = await request.json()
@@ -15,8 +15,8 @@ export async function POST(
     }
 
     // Forward the request to the backend FastAPI server
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8765'
-    const response = await fetch(`${backendUrl}/browser-use/session/${params.sessionId}/task`, {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8001'
+    const response = await fetch(`${backendUrl}/browser-use/session/${context.params.sessionId}/task`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,12 +40,6 @@ export async function POST(
 
   } catch (error) {
     console.error('Error executing browser task:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Internal server error' 
-      },
-      { status: 500 }
-    )
+    return new NextResponse(JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Internal server error' }), { status: 500 })
   }
 }

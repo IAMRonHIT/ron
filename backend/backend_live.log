@@ -2,7 +2,7 @@ INFO:     Will watch for changes in these directories: ['/Users/timhunter/ron-ai
 INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
 INFO:     Started reloader process [37550] using WatchFiles
 INFO     [api] Claude completions module imported successfully
-INFO     [agents.claudeAgent.claude_tools.clinical_agent.healthcare_agent_integration] Clinical Ops initialized with OpenAI API key: sk-svcacct... using ft:gpt-4.1-2025-04-14
+INFO     [agents.claudeAgent.claude_tools.clinical_agent.healthcare_agent_integration] Clinical Ops initialized with OpenAI API key: sk-svcacct... using ft:gpt-5-2025-04-14
 INFO     [agents.claudeAgent.claude_tools.browser_use.browser_use_service] browser-use library loaded successfully
 INFO     [api] Browser-Use service imported successfully
 INFO     [api] Claude Code SDK integration loaded successfully

@@ -58,6 +58,9 @@ export interface ProviderSearchResult {
   insurance: string[]
   imageUrl?: string
   aiSummary?: string
+  // Optional coordinates for map plotting
+  lat?: number
+  lng?: number
 }
 
 export interface ProviderSearchData {

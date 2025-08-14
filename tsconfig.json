@@ -34,6 +34,11 @@
     "**/*.tsx"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "agent-starter-pack/**",
+    "adk-python/**",
+    "claude_code_sdk_backup/**",
+    "claude-computer-use-backup/**",
+    "claude-computer-use/**"
   ]
 }

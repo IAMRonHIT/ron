@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Prefer 127.0.0.1 over localhost to avoid resolver/proxy issues on some systems
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://127.0.0.1:8001'
+// Build an ordered list of backend bases to try
+const BACKEND_BASE_CANDIDATES: string[] = [
+  process.env.BACKEND_URL!,
+  process.env.BACKEND_API_URL!,
+  process.env.NEXT_PUBLIC_BACKEND_BASE_URL!,
+  'http://localhost:8765', // FastAPI log default
+  'http://localhost:8001', // legacy
+  'http://localhost:8000', // earlier default
+].filter(Boolean)
 
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
 
@@ -24,14 +31,22 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     
-    // Proxy request to Python backend with retry (handles startup race)
-    const response = await fetchWithRetry(`${BACKEND_API_URL}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
+    // Try each backend base until one responds
+    let response: Response | null = null
+    let lastErr: any
+    for (const base of BACKEND_BASE_CANDIDATES) {
+      try {
+        response = await fetchWithRetry(`${base}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (response?.ok || response?.status === 200) break
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    if (!response) throw lastErr || new Error('No backend available')
     
     if (!response.ok) {
       throw new Error(`Backend responded with ${response.status}`)

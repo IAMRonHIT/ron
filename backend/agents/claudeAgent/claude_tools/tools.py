@@ -23,8 +23,196 @@ from backend.agents.claudeAgent.claude_tools.pubmed.pubmed_tools import (
     pubmed_fetch_related, pubmed_fetch_citations, pubmed_search_clinical_trials,
     pubmed_mesh_search
 )
+from backend.agents.claudeAgent.claude_tools.orchestrator_tools import (
+    spawn_healthcare_agent, execute_spawned_agent, execute_agent_team,
+    check_agent_status, cleanup_completed_agent, orchestrate_healthcare_task
+)
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------
+# Provider Search (uses Perplexity to fetch data)
+# ---------------------------------------------
+async def provider_search(
+    specialty: str,
+    location: str,
+    insurance: str | None = None,
+    preferences: Dict[str, Any] | None = None,
+    top_n: int = 5,
+) -> Dict[str, Any]:
+    """
+    Find healthcare providers that match user criteria using Perplexity and
+    return structured results compatible with the frontend's ProviderSearchResult.
+
+    Fields returned per provider:
+      - id: string
+      - name: string
+      - specialty: string
+      - rating: number (0-5)
+      - reviews: number
+      - location: string
+      - distance: string (e.g., "3.2 mi")
+      - availability: string
+      - insurance: string[]
+      - imageUrl?: string
+      - aiSummary?: string
+    """
+    import aiohttp
+    import json as _json
+    import re
+
+    api_key = os.getenv('PERPLEXITY_API_KEY')
+    if not api_key:
+        return {
+            "success": False,
+            "error": "PERPLEXITY_API_KEY not configured",
+            "results": [],
+            "searchQuery": f"{specialty} in {location}",
+        }
+
+    # Build user preferences text
+    pref_parts: List[str] = []
+    if insurance:
+        pref_parts.append(f"must accept {insurance}")
+    if preferences:
+        if preferences.get("languages"):
+            pref_parts.append(f"languages: {', '.join(preferences['languages'])}")
+        if preferences.get("gender_preference"):
+            pref_parts.append(f"preferred clinician gender: {preferences['gender_preference']}")
+        if preferences.get("telehealth") is True:
+            pref_parts.append("telehealth available")
+        if preferences.get("accepting_new_patients") is True:
+            pref_parts.append("accepting new patients")
+        if preferences.get("distance_miles"):
+            pref_parts.append(f"within {preferences['distance_miles']} miles")
+
+    prefs_text = ", ".join(pref_parts) if pref_parts else "no additional preferences"
+
+    system_instructions = (
+        "Return ONLY JSON. No prose. JSON must be an object with keys 'results' (array) and 'searchQuery' (string). "
+        "Each result must include: id, name, specialty, rating (0-5), reviews (int), location (string), distance (string), "
+        "availability (string), insurance (string array), imageUrl (optional), aiSummary (string concise how they match preferences)."
+    )
+    user_query = (
+        f"Find top {top_n} {specialty} providers near {location}. Preferences: {prefs_text}. "
+        f"Focus on reputable sources (official provider sites, health system directories, Google Maps, Healthgrades, Vitals, Doximity). "
+        f"If exact data missing, infer reasonably from sources and state 'unknown' for unavailable fields."
+    )
+
+    payload = {
+        "model": "sonar-reasoning",
+        "messages": [
+            {"role": "system", "content": system_instructions},
+            {"role": "user", "content": user_query},
+        ],
+        "stream": False,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post("https://api.perplexity.ai/chat/completions", headers=headers, json=payload) as resp:
+            text = await resp.text()
+            if resp.status != 200:
+                logger.error(f"provider_search API error {resp.status}: {text}")
+                return {"success": False, "error": f"Perplexity error {resp.status}", "results": [], "searchQuery": f"{specialty} in {location}"}
+            try:
+                data = await resp.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            except Exception:
+                content = text
+
+    # Extract JSON object from content
+    # Try direct parse first
+    parsed: Dict[str, Any] | None = None
+    try:
+        parsed = _json.loads(content)
+    except Exception:
+        # Try to find the first JSON object in the text
+        match = re.search(r"\{[\s\S]*\}", content)
+        if match:
+            try:
+                parsed = _json.loads(match.group(0))
+            except Exception:
+                parsed = None
+
+    if not parsed or not isinstance(parsed, dict):
+        # Fallback: build empty structure
+        return {
+            "success": False,
+            "error": "Failed to parse provider results",
+            "results": [],
+            "searchQuery": f"{specialty} in {location}",
+        }
+
+    results = parsed.get("results", [])
+    # Normalize fields and ensure IDs
+    normalized: List[Dict[str, Any]] = []
+    for i, p in enumerate(results[: top_n or 5]):
+        try:
+            normalized.append({
+                "id": str(p.get("id") or p.get("npi") or p.get("name") or f"prov_{i}"),
+                "name": p.get("name") or "Unknown",
+                "specialty": p.get("specialty") or specialty,
+                "rating": float(p.get("rating") or 0),
+                "reviews": int(p.get("reviews") or 0),
+                "location": p.get("location") or "Unknown",
+                "distance": p.get("distance") or "--",
+                "availability": p.get("availability") or "Unknown",
+                "insurance": p.get("insurance") or ([insurance] if insurance else []),
+                "imageUrl": p.get("imageUrl"),
+                "aiSummary": p.get("aiSummary") or "",
+            })
+        except Exception as e:
+            logger.warning(f"Skipping provider due to normalization error: {e}")
+
+    return {
+        "success": True,
+        "results": normalized,
+        "searchQuery": parsed.get("searchQuery") or f"{specialty} in {location}",
+    }
+
+
+# -----------------------------
+# Subagents (team) orchestration
+# -----------------------------
+async def list_subagents() -> Dict[str, Any]:
+    """Expose subagent catalog."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import list_subagents as _list
+    return _list()
+
+
+async def run_subagent(name: str, task: str, context: Dict[str, Any] | None = None, allowed_tools_override: List[str] | None = None, disable_mcp: bool | None = True) -> Dict[str, Any]:
+    """Run a single preconfigured subagent."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import run_subagent as _run
+    return await _run(name=name, task=task, context=context, allowed_tools_override=allowed_tools_override, disable_mcp=bool(disable_mcp))
+
+
+async def run_subagents(task: str, team: List[str] | None = None, context: Dict[str, Any] | None = None, parallel: bool = True, aggregation: str = "consensus", disable_mcp: bool | None = True) -> Dict[str, Any]:
+    """Run a team of subagents and aggregate their outputs."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import run_subagents as _run_team
+    return await _run_team(task=task, team=team, context=context, parallel=parallel, aggregation=aggregation, disable_mcp=bool(disable_mcp))
+
+
+async def register_subagent(name: str, description: str, role_goal: str, allowed_tools: List[str], instruction_suffix: str | None = None) -> Dict[str, Any]:
+    """Create a new custom subagent and persist it to the registry."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import register_subagent as _reg
+    return _reg(name=name, description=description, role_goal=role_goal, allowed_tools=allowed_tools, instruction_suffix=instruction_suffix)
+
+
+async def update_subagent(name: str, description: str | None = None, role_goal: str | None = None, allowed_tools: List[str] | None = None, instruction_suffix: str | None = None) -> Dict[str, Any]:
+    """Update an existing custom subagent."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import update_subagent as _upd
+    return _upd(name=name, description=description, role_goal=role_goal, allowed_tools=allowed_tools, instruction_suffix=instruction_suffix)
+
+
+async def delete_subagent(name: str) -> Dict[str, Any]:
+    """Delete a custom subagent from the registry."""
+    from backend.agents.claudeAgent.claude_tools.sub_agents import delete_subagent as _del
+    return _del(name=name)
 
 # Browser session creation tool - creates session and returns LiveURL immediately
 async def create_browser_session(initial_url: str = "about:blank") -> Dict[str, Any]:
@@ -522,6 +710,34 @@ TOOLS = {
             }
         }
     },
+    "list_subagents": {
+        "function": list_subagents,
+        "description": "List the preconfigured subagents available to assist the main agent.",
+        "parameters": {}
+    },
+    "run_subagent": {
+        "function": run_subagent,
+        "description": "Run a single subagent on a task with optional context and tool overrides. Returns structured JSON.",
+        "parameters": {
+            "name": {"type": "string", "description": "Subagent name (e.g., InsuranceNavigator)", "required": True},
+            "task": {"type": "string", "description": "Task for the subagent", "required": True},
+            "context": {"type": "object", "description": "Optional JSON context for the task", "required": False},
+            "allowed_tools_override": {"type": "array", "description": "Optional list of tool names to restrict this run", "required": False},
+            "disable_mcp": {"type": "boolean", "description": "When true, disable all MCP servers (e.g., Telnyx) for this subagent run", "required": False, "default": True}
+        }
+    },
+    "run_subagents": {
+        "function": run_subagents,
+        "description": "Run a team of subagents in parallel and aggregate findings/actions/next_steps with a recommendation.",
+        "parameters": {
+            "task": {"type": "string", "description": "Task for the team", "required": True},
+            "team": {"type": "array", "description": "Optional list of subagent names to use", "required": False},
+            "context": {"type": "object", "description": "Optional JSON context shared to all subagents", "required": False},
+            "parallel": {"type": "boolean", "description": "Run subagents in parallel (default true)", "required": False, "default": True},
+            "aggregation": {"type": "string", "description": "Aggregation strategy: 'consensus' | 'best_savings' | 'speed'", "required": False, "default": "consensus"},
+            "disable_mcp": {"type": "boolean", "description": "When true, disable all MCP servers for all subagent runs in this team call", "required": False, "default": True}
+        }
+    },
     "create_browser_session": {
         "function": create_browser_session,
         "description": "Create a browser session and get LiveURL immediately to open the browser panel",
@@ -548,6 +764,93 @@ TOOLS = {
                 "description": "Optional session ID to reuse existing session",
                 "required": False
             }
+        }
+    },
+    "provider_search": {
+        "function": provider_search,
+        "description": "Find healthcare providers (top N) by specialty, location, insurance, and preferences. Returns structured results for UI rendering.",
+        "parameters": {
+            "specialty": {
+                "type": "string",
+                "description": "Provider specialty (e.g., 'Primary Care', 'Rheumatology')",
+                "required": True
+            },
+            "location": {
+                "type": "string",
+                "description": "City, state or address to search near",
+                "required": True
+            },
+            "insurance": {
+                "type": "string",
+                "description": "Insurance plan or payer name (optional)",
+                "required": False
+            },
+            "preferences": {
+                "type": "object",
+                "description": "Optional preferences (languages, gender_preference, telehealth, accepting_new_patients, distance_miles)",
+                "required": False
+            },
+            "top_n": {
+                "type": "integer",
+                "description": "Number of providers to return (default 5)",
+                "required": False,
+                "default": 5
+            }
+        }
+    },
+    "list_subagents": {
+        "function": list_subagents,
+        "description": "List the preconfigured subagents available to assist the main agent.",
+        "parameters": {}
+    },
+    "run_subagent": {
+        "function": run_subagent,
+        "description": "Run a single subagent on a task with optional context and tool overrides. Returns structured JSON.",
+        "parameters": {
+            "name": {"type": "string", "description": "Subagent name (e.g., InsuranceNavigator)", "required": True},
+            "task": {"type": "string", "description": "Task for the subagent", "required": True},
+            "context": {"type": "object", "description": "Optional JSON context for the task", "required": False},
+            "allowed_tools_override": {"type": "array", "description": "Optional list of tool names to restrict this run", "required": False}
+        }
+    },
+    "run_subagents": {
+        "function": run_subagents,
+        "description": "Run a team of subagents in parallel and aggregate findings/actions/next_steps with a recommendation.",
+        "parameters": {
+            "task": {"type": "string", "description": "Task for the team", "required": True},
+            "team": {"type": "array", "description": "Optional list of subagent names to use", "required": False},
+            "context": {"type": "object", "description": "Optional JSON context shared to all subagents", "required": False},
+            "parallel": {"type": "boolean", "description": "Run subagents in parallel (default true)", "required": False, "default": True},
+            "aggregation": {"type": "string", "description": "Aggregation strategy: 'consensus' | 'best_savings' | 'speed'", "required": False, "default": "consensus"}
+        }
+    },
+    "register_subagent": {
+        "function": register_subagent,
+        "description": "Create a new custom subagent at runtime and persist it to the registry.",
+        "parameters": {
+            "name": {"type": "string", "description": "Unique subagent name (cannot collide with core)", "required": True},
+            "description": {"type": "string", "description": "Short description of the agent's role", "required": True},
+            "role_goal": {"type": "string", "description": "Primary goal for the agent", "required": True},
+            "allowed_tools": {"type": "array", "description": "Allowed custom tool names for this agent", "required": True},
+            "instruction_suffix": {"type": "string", "description": "Optional system prompt suffix; defaults to JSON-output instruction", "required": False}
+        }
+    },
+    "update_subagent": {
+        "function": update_subagent,
+        "description": "Update a custom subagent's metadata or allowed tools.",
+        "parameters": {
+            "name": {"type": "string", "description": "Existing custom subagent name", "required": True},
+            "description": {"type": "string", "description": "New description", "required": False},
+            "role_goal": {"type": "string", "description": "New role goal", "required": False},
+            "allowed_tools": {"type": "array", "description": "New allowed tool names", "required": False},
+            "instruction_suffix": {"type": "string", "description": "New instruction suffix", "required": False}
+        }
+    },
+    "delete_subagent": {
+        "function": delete_subagent,
+        "description": "Delete a custom subagent from the registry.",
+        "parameters": {
+            "name": {"type": "string", "description": "Custom subagent name to delete", "required": True}
         }
     },
     "web_search": {
@@ -1085,7 +1388,111 @@ TOOLS = {
                 "default": 20
             }
         }
+    },
+    # Multi-Agent Orchestration Tools (Anthropic-style)
+    "spawn_healthcare_agent": {
+        "function": spawn_healthcare_agent,
+        "description": "Spawn a specialized healthcare agent with custom system prompt and tools. Enables Anthropic-style multi-agent orchestration where the main Claude can delegate specific tasks to specialized subagents.",
+        "parameters": {
+            "agent_id": {
+                "type": "string",
+                "description": "Unique identifier for this agent instance",
+                "required": True
+            },
+            "specialty": {
+                "type": "string", 
+                "description": "Agent specialty: 'insurance_researcher', 'clinical_researcher', 'patient_advocate', 'pharmacy_specialist', or 'appeals_specialist'",
+                "required": True
+            },
+            "task": {
+                "type": "string",
+                "description": "Specific task for this agent to accomplish",
+                "required": True
+            },
+            "allowed_tools": {
+                "type": "array",
+                "description": "List of tool names this agent is allowed to use",
+                "required": True
+            },
+            "context": {
+                "type": "object",
+                "description": "Optional context information for the agent",
+                "required": False
+            }
+        }
+    },
+    "execute_spawned_agent": {
+        "function": execute_spawned_agent,
+        "description": "Execute a previously spawned agent in its own context window. This creates a separate Claude conversation for the agent.",
+        "parameters": {
+            "agent_id": {
+                "type": "string",
+                "description": "ID of the agent to execute",
+                "required": True
+            }
+        }
+    },
+    "execute_agent_team": {
+        "function": execute_agent_team,
+        "description": "Execute multiple spawned agents in parallel (Anthropic's multi-agent pattern). All agents run concurrently in separate context windows.",
+        "parameters": {
+            "agent_ids": {
+                "type": "array",
+                "description": "List of agent IDs to execute in parallel",
+                "required": True
+            }
+        }
+    },
+    "orchestrate_healthcare_task": {
+        "function": orchestrate_healthcare_task,
+        "description": "High-level orchestration tool that mimics Anthropic's research system. Automatically spawns specialized agents, executes them in parallel, and aggregates results.",
+        "parameters": {
+            "task": {
+                "type": "string",
+                "description": "The healthcare task to orchestrate across multiple agents",
+                "required": True
+            },
+            "specialties": {
+                "type": "array",
+                "description": "List of agent specialties to use (e.g., ['insurance_researcher', 'clinical_researcher'])",
+                "required": True
+            },
+            "context": {
+                "type": "object",
+                "description": "Optional context to share across all agents",
+                "required": False
+            },
+            "parallel": {
+                "type": "boolean",
+                "description": "Whether to execute agents in parallel (default: true)",
+                "required": False,
+                "default": True
+            }
+        }
+    },
+    "check_agent_status": {
+        "function": check_agent_status,
+        "description": "Check the status of a spawned agent",
+        "parameters": {
+            "agent_id": {
+                "type": "string",
+                "description": "ID of the agent to check",
+                "required": True
+            }
+        }
+    },
+    "cleanup_completed_agent": {
+        "function": cleanup_completed_agent,
+        "description": "Clean up a completed agent from memory",
+        "parameters": {
+            "agent_id": {
+                "type": "string", 
+                "description": "ID of the agent to clean up",
+                "required": True
+            }
+        }
     }
+    # Brave Search tools removed - accessed through MCP server
     # computer_use removed - should be enabled as native Claude capability, not a recursive tool
 }
 

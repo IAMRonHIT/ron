@@ -6,11 +6,10 @@
     "build": "next build",
     "dev": "next dev",
     "dev:backend": "bash -c 'source venv/bin/activate && source .env && export TELNYX_MCP_URL=\"https://api.telnyx.com/mcp/sse\" && export TELNYX_MCP_MODE=\"sse\" && export PYTHONPATH=/Users/timhunter/ron-ai:$PYTHONPATH && python3 -m uvicorn backend.api:app --host 0.0.0.0 --port 8001 --reload'",
-    "predev:telnyx": "pkill -f ngrok || true",
-    "dev:telnyx": "cd telnyx-mcp-server && dotenv -- uvx --from . telnyx-mcp-server --webhook-enabled --ngrok-enabled",
+    "dev:brave": "dotenv -- ./start_brave_mcp.sh",
     "dev:computer-use": "node backend/agents/claudeAgent/claude_tools/computer_use/start_docker_service.js",
     "dev:computer-use-aws": "bash scripts/start-computer-use-aws.sh",
-    "dev:all": "npm run kill-ports && concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "dev:all": "npm run kill-ports && docker-compose -f docker-compose.brave.yml up -d && concurrently \"npm run dev\" \"npm run dev:backend\"",
     "kill-ports": "node scripts/kill-ports.js",
     "lint": "next lint",
     "start": "next start"

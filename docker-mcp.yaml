@@ -1,0 +1,6 @@
+services:
+  brave:
+    image: ghcr.io/modelcontextprotocol/brave-search:latest
+    secrets:
+      - brave.api_key
+      - brave.goggles

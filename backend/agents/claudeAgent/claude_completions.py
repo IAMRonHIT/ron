@@ -19,7 +19,7 @@ class ClaudeCompletions:
         self.client = AsyncAnthropic(
             api_key=api_key,
             default_headers={
-                "anthropic-beta": "interleaved-thinking-2025-05-14,computer-use-2025-01-24,fine-grained-tool-streaming-2025-05-14,code-execution-2025-05-22,mcp-client-2025-04-04"
+                "anthropic-beta": "interleaved-thinking-2025-05-14,computer-use-2025-01-24,fine-grained-tool-streaming-2025-05-14,code-execution-2025-05-22,mcp-client-2025-04-04,context-1m-2025-08-07"
             }
         )
         self.model = "claude-sonnet-4-20250514"
@@ -152,6 +152,19 @@ class ClaudeCompletions:
   
   Example usage: "Use computer_use to install Claude Code CLI and create a medication cost calculator"
 
+* **Brave Search Tools (via MCP)**
+  Complete web search capabilities with Ron AI's custom healthcare goggles:
+  
+  * `mcp__brave-search__brave_web_search` - Web search with goggles for healthcare-focused results
+  * `mcp__brave-search__brave_news_search` - News search with goggles for healthcare news
+  * `mcp__brave-search__brave_local_search` - Find local healthcare providers and facilities
+  * `mcp__brave-search__brave_video_search` - Search for educational and medical videos
+  * `mcp__brave-search__brave_image_search` - Search for medical images and diagrams
+  * `mcp__brave-search__brave_summarizer` - Generate AI summaries from search results
+  
+  **IMPORTANT**: brave_web_search and brave_news_search automatically use Ron AI's goggles at:
+  https://gist.githubusercontent.com/RonsDad/669383264435c45be4a76da5158a5d05/raw
+
 * **Telnyx Telephony & Messaging Tools**
   Professional telephony and messaging capabilities for healthcare communications:
   
@@ -232,7 +245,223 @@ Your effectiveness is measured by:
 * Accuracy of insurance/coverage information
 * Patient satisfaction and reduced medication access stress
 
-Remember: Every dollar saved and every barrier removed helps a real person access the healthcare they need. Your work directly impacts lives."""
+---
+
+## Subagent Orchestration (Healthcare Only)
+
+You can create and orchestrate specialized subagents using these tools:
+* `list_subagents` - See available custom subagents
+* `register_subagent` - Create new healthcare-focused subagents 
+* `run_subagent` - Execute a single subagent with specific tools
+* `run_subagents` - Run a team in parallel and aggregate results
+
+**Healthcare Subagent Examples** (create as needed):
+* **CoverageVerifier**: Verify insurance coverage, benefits, OOP costs
+* **ProgramNavigator**: Find manufacturer programs, PAPs, foundations
+* **PriceInvestigator**: Compare pharmacy prices, discount cards
+* **PriorAuthSpecialist**: Research PA requirements, documentation
+* **FormularyExpert**: Check tier status, alternatives, step therapy
+* **AppealStrategist**: Draft appeals with clinical evidence
+
+**Guidelines**:
+* ALL subagents MUST be healthcare/medication access related
+* Grant only safe tools (no computer_use, browser_use, or Telnyx)
+* Use focused role_goal and minimal tool sets for efficiency
+* Run teams in parallel when multiple perspectives help
+* Subagents use Sonnet 4 with interleaved thinking
+        
+        Remember: Every dollar saved and every barrier removed helps a real person access the healthcare they need. Your work directly impacts lives.
+        """
+
+    def _normalize_mcp_servers(self, cfg: Any) -> List[Dict[str, Any]]:
+        """Normalize various MCP server config shapes into Anthropic-compatible list.
+
+        Supports:
+        - { "mcpServers": { name: { type, ... } } }
+        - { name: { type, ... } }
+        - [ { type, name, ... }, ... ]
+        """
+        servers: List[Dict[str, Any]] = []
+        try:
+            # Allow direct list
+            if isinstance(cfg, list):
+                for item in cfg:
+                    if isinstance(item, dict) and item.get("type") in {"stdio", "url"}:
+                        if not item.get("name"):
+                            item = {**item, "name": item.get("name") or item.get("id") or "mcp"}
+                        servers.append(item)
+                return servers
+
+            # Extract map of name -> config
+            if isinstance(cfg, dict) and "mcpServers" in cfg and isinstance(cfg["mcpServers"], dict):
+                entries = cfg["mcpServers"].items()
+            elif isinstance(cfg, dict):
+                entries = cfg.items()
+            else:
+                return []
+
+            for name, val in entries:
+                if not isinstance(val, dict):
+                    continue
+                # Infer server type when omitted
+                server_type = val.get("type") or ("url" if val.get("url") else ("stdio" if val.get("command") else None))
+                if server_type == "stdio":
+                    command = val.get("command")
+                    if not command:
+                        continue
+                    server_obj: Dict[str, Any] = {
+                        "type": "stdio",
+                        "name": name,
+                        "command": command,
+                        "args": val.get("args", []),
+                    }
+                    # Pass through and merge env values with actual environment
+                    env_map = val.get("env")
+                    if isinstance(env_map, dict):
+                        merged_env: Dict[str, str] = {}
+                        for k, v in env_map.items():
+                            # Prefer real environment if present
+                            merged_env[k] = os.environ.get(k, v if isinstance(v, str) else str(v))
+                        if merged_env:
+                            server_obj["env"] = merged_env
+                    servers.append(server_obj)
+                elif server_type == "url":
+                    url = val.get("url")
+                    # Skip invalid URL entries (e.g., unexpanded placeholders)
+                    if not isinstance(url, str) or not url or url.strip().startswith("${") or not url.startswith("http"):
+                        continue
+                    server_obj: Dict[str, Any] = {
+                        "type": "url",
+                        "name": name,
+                        "url": url,
+                    }
+                    token = val.get("authorization_token") or val.get("authorizationToken") or val.get("token")
+                    if token:
+                        server_obj["authorization_token"] = token
+                    servers.append(server_obj)
+        except Exception as e:
+            logger.warning(f"Failed to normalize MCP servers: {e}")
+        return servers
+
+    def _load_mcp_servers_from_env(self) -> List[Dict[str, Any]]:
+        """Load MCP server configs from env or default files and normalize them."""
+        servers: List[Dict[str, Any]] = []
+        cfg: Any = None
+        # Allow hard opt-out of local MCP definitions
+        if os.environ.get("DISABLE_LOCAL_MCP", "").strip().lower() in {"1", "true", "yes"}:
+            return []
+        # Prefer explicit JSON env vars
+        json_str = os.environ.get("MCP_SERVERS_JSON") or os.environ.get("MCP_SERVERS")
+        if json_str:
+            try:
+                cfg = json.loads(json_str)
+            except Exception as e:
+                logger.warning(f"MCP_SERVERS_JSON parse error: {e}")
+
+        # If not provided, try file env var
+        if cfg is None:
+            file_path = os.environ.get("MCP_SERVERS_FILE")
+            if file_path and os.path.exists(file_path):
+                try:
+                    with open(file_path, "r") as f:
+                        cfg = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed reading MCP_SERVERS_FILE {file_path}: {e}")
+
+        # If still none, try common defaults in project
+        if cfg is None:
+            try_paths = [
+                os.path.join(os.getcwd(), "mcp_servers.json"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "mcp_servers.json"),
+                os.path.join(os.path.dirname(__file__), "mcp_servers.json"),
+            ]
+            for p in try_paths:
+                if os.path.exists(p):
+                    try:
+                        with open(p, "r") as f:
+                            cfg = json.load(f)
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed reading default MCP servers file {p}: {e}")
+
+        if cfg is None:
+            return []
+
+        servers = self._normalize_mcp_servers(cfg)
+        if servers:
+            logger.info(f"Loaded {len(servers)} MCP server(s) from configuration")
+        return servers
+    
+    async def _execute_single_tool(self, block: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a single tool and return the result."""
+        tool_name = block.get('name', 'unknown')
+        tool_input = block.get('input', {})
+        # Handle case where Claude sends empty string instead of empty dict
+        if tool_input == "" or tool_input is None:
+            tool_input = {}
+        tool_id = block.get('id', '')
+        
+        try:
+            logger.info(f"Executing tool {tool_name} with input: {tool_input}")
+            
+            # Handle computer tool specially - it's a native Claude capability
+            if tool_name == 'computer':
+                # Computer tool is handled by Claude natively
+                # We need to execute the action Claude requested
+                # Use browserless for computer use display
+                from backend.agents.claudeAgent.claude_tools.browser_use.browser_use_service import browser_use_service
+                action = tool_input.get('action', 'screenshot')
+                
+                # Use browserless for computer display
+                # Create a browser session if needed
+                active_sessions = await browser_use_service.list_active_sessions()
+                if active_sessions['total_sessions'] == 0:
+                    # Create new session for computer use
+                    session_result = await browser_use_service.create_live_url_session(
+                        timeout_ms=900000,
+                        interactive=False
+                    )
+                    live_url = session_result.get('live_url')
+                    if live_url:
+                        logger.info(f"SENDING LiveURL for computer use: {live_url}")
+                        # Note: Can't yield from this method - parent will handle browser_live_url events
+                
+                # For now, return a simulated result since we're using browserless
+                if action == 'screenshot':
+                    # Return empty screenshot
+                    tool_result = {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": ""
+                        }
+                    }
+                else:
+                    tool_result = {"success": True, "action": action}
+                logger.info(f"Computer action {action} simulated via browserless")
+            else:
+                # Use unified executor for regular tools
+                from backend.agents.claudeAgent.claude_tools.claude_tool_handler import execute_tool
+                tool_result = await execute_tool(tool_name, tool_input, [])
+                logger.info(f"Tool {tool_name} executed successfully")
+            
+            return {
+                'success': True,
+                'tool_name': tool_name,
+                'tool_id': tool_id,
+                'result': tool_result,
+                'content': json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
+            }
+        except Exception as e:
+            logger.error(f"Error executing tool {tool_name}: {str(e)}")
+            return {
+                'success': False,
+                'tool_name': tool_name,
+                'tool_id': tool_id,
+                'error': str(e),
+                'content': f"Error: {str(e)}"
+            }
     
     async def stream_complete(
         self,
@@ -243,7 +472,11 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
         thinking_budget: int = 20000,
         tools: Optional[List[Any]] = None,
         custom_tools: Optional[List[Dict]] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        enable_computer_use: bool = True,
+        disable_mcp: bool = False,
+        mcp_allowlist: Optional[List[str]] = None,
+        mcp_denylist: Optional[List[str]] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Stream completion with tool support - provides seamless agent behavior.
@@ -269,6 +502,7 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                 else:
                     cleaned_msg['content'] = msg.get('content', '')
                 conversation_messages.append(cleaned_msg)
+            
             
             while True:
                 # Force temperature to 1.0 when thinking is enabled (Claude requirement)
@@ -296,11 +530,30 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                     input_val = block.get('input')
                                     logger.info(f"    Input type: {type(input_val)}, value: {input_val}")
                 
-                # Add system prompt
+                # Add system prompt with proper Anthropic cache_control
                 if system_prompt:
-                    request_params["system"] = system_prompt
+                    # For custom system prompts, cache them if they're large enough (>1000 chars)
+                    if len(system_prompt) > 1000:
+                        request_params["system"] = [
+                            {
+                                "type": "text",
+                                "text": system_prompt,
+                                "cache_control": {"type": "ephemeral"}
+                            }
+                        ]
+                        logger.info("💾 Prompt caching: Custom system prompt cached")
+                    else:
+                        request_params["system"] = system_prompt
                 else:
-                    request_params["system"] = self.default_system_prompt
+                    # Always cache the default system prompt since it's large
+                    request_params["system"] = [
+                        {
+                            "type": "text", 
+                            "text": self.default_system_prompt,
+                            "cache_control": {"type": "ephemeral"}
+                        }
+                    ]
+                    logger.info("💾 Prompt caching: Default system prompt cached")
                 
                 # Add thinking if enabled
                 if enable_thinking:
@@ -309,48 +562,115 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                         "budget_tokens": thinking_budget
                     }
                 
-                # Handle tools
-                if tools or custom_tools:
-                    tool_list = []
-                    
-                    if tools:
-                        for tool in tools:
-                            if isinstance(tool, str):
-                                # Native tool
-                                if tool == "bash":
-                                    tool_list.append({"type": "bash_20250124", "name": "bash"})
-                                elif tool == "text_editor":
-                                    tool_list.append({"type": "text_editor_20250124", "name": "str_replace_based_edit_tool"})
-                                elif tool == "code_execution":
-                                    tool_list.append({"type": "code_execution_20250522", "name": "code_execution"})
-                            elif isinstance(tool, dict):
-                                # Custom tool
-                                tool_list.append(tool)
-                    
-                    # Add custom tools if provided
-                    if custom_tools:
-                        tool_list.extend(custom_tools)
-                    
-                    if tool_list:
+                # Handle tools - initialize tool_list first
+                tool_list = []
+                
+                if tools:
+                    for tool in tools:
+                        if isinstance(tool, str):
+                            # Native tool
+                            if tool == "bash":
+                                tool_list.append({"type": "bash_20250124", "name": "bash"})
+                            elif tool == "text_editor":
+                                tool_list.append({"type": "text_editor_20250124", "name": "str_replace_editor"})
+                            elif tool == "code_execution":
+                                tool_list.append({"type": "code_execution_20250522", "name": "code_execution"})
+                        elif isinstance(tool, dict):
+                            # Custom tool
+                            tool_list.append(tool)
+                
+                # Add custom tools if provided
+                if custom_tools:
+                    tool_list.extend(custom_tools)
+                
+                # Add computer use tool if enabled (default: True)
+                if enable_computer_use:
+                    # Add the native computer-use tool
+                    tool_list.append({
+                        "type": "computer_20250124",
+                        "name": "computer",
+                        "display_width_px": 1024,
+                        "display_height_px": 768,
+                        "display_number": 1
+                    })
+                    logger.info("Added native computer-use tool to Claude's capabilities")
+                
+                if tool_list:
                         request_params["tools"] = tool_list
                         logger.info(f"Sending tools to Claude: {json.dumps(tool_list, indent=2)}")
                 
-                # Add MCP server configuration for Telnyx if API key is available
-                telnyx_api_key = os.environ.get("TELNYX_API_KEY")
-                if telnyx_api_key:
-                    # Configure Telnyx as a remote MCP server using Claude's MCP connector
-                    request_params["mcp_servers"] = [
-                        {
-                            "type": "url",
-                            "url": "https://api.telnyx.com/mcp/sse",  # Telnyx MCP SSE endpoint
-                            "name": "telnyx",
-                            "authorization_token": telnyx_api_key,  # Use API key as auth token
-                            "tool_configuration": {
-                                "enabled": True
-                            }
-                        }
-                    ]
-                    logger.info("Configured Telnyx MCP server for Claude MCP connector")
+                # Load MCP servers unless explicitly disabled for this call
+                if not disable_mcp:
+                    mcp_servers: List[Dict[str, Any]] = []
+                    try:
+                        mcp_servers = self._load_mcp_servers_from_env()
+                    except Exception as e:
+                        logger.warning(f"Failed to load MCP servers from env: {e}")
+                        mcp_servers = []  # Continue without MCP servers
+
+                    try:
+                        telnyx_api_key = os.environ.get("TELNYX_API_KEY")
+                        if telnyx_api_key:
+                            mcp_servers.append({
+                                "type": "url",
+                                "url": "https://api.telnyx.com/mcp/sse",
+                                "name": "telnyx",
+                                "authorization_token": telnyx_api_key,
+                                "tool_configuration": {"enabled": True},
+                            })
+                    except Exception as e:
+                        logger.warning(f"Failed to add Telnyx MCP server: {e}")
+
+                    # Add Brave Search MCP server  
+                    brave_api_key = os.environ.get("BRAVE_API_KEY")
+                    if brave_api_key:
+                        # Use ngrok HTTPS URL since Claude API requires publicly accessible HTTPS endpoint
+                        mcp_servers.append({
+                            "type": "url", 
+                            "url": "https://3913348c48d4.ngrok-free.app/mcp",
+                            "name": "brave-search",
+                            "authorization_token": brave_api_key,
+                            "tool_configuration": {"enabled": True}
+                        })
+                        logger.info("Added Brave Search MCP server with goggles support via ngrok HTTPS")
+
+                    # Apply per-run MCP allow/deny filters
+                    if mcp_servers and (mcp_allowlist or mcp_denylist):
+                        filtered: List[Dict[str, Any]] = []
+                        allow = set(mcp_allowlist or [])
+                        deny = set(mcp_denylist or [])
+                        for srv in mcp_servers:
+                            name = srv.get("name") or ""
+                            if allow and name not in allow:
+                                continue
+                            if deny and name in deny:
+                                continue
+                            filtered.append(srv)
+                        mcp_servers = filtered
+
+                    if mcp_servers:
+                        # Clean up MCP servers to only include fields accepted by Anthropic SDK
+                        cleaned_servers = []
+                        for srv in mcp_servers:
+                            if srv.get("type") == "url":
+                                # Only include required fields for URL-type MCP servers
+                                cleaned_server = {
+                                    "type": "url",
+                                    "url": srv.get("url")
+                                }
+                                # Optional fields that Anthropic SDK accepts
+                                if srv.get("name"):
+                                    cleaned_server["name"] = srv.get("name")
+                                if srv.get("authorization_token"):
+                                    cleaned_server["authorization_token"] = srv.get("authorization_token")
+                                if srv.get("tool_configuration"):
+                                    cleaned_server["tool_configuration"] = srv.get("tool_configuration")
+                                cleaned_servers.append(cleaned_server)
+                        
+                        request_params["mcp_servers"] = cleaned_servers
+                        logger.info(f"Configured {len(cleaned_servers)} MCP server(s) for Claude MCP connector")
+                        # Debug: Log exact MCP servers being sent
+                        logger.info(f"MCP servers being sent to Claude: {json.dumps(cleaned_servers, indent=2)}")
                 
                 # For beta features with interleaved thinking, use the async stream context manager
                 # Ensure betas are enabled when using interleaved thinking and fine-grained tool streaming
@@ -404,6 +724,10 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                         'name': getattr(event.content_block, 'name', ''),
                                         'input': ''
                                     }
+                                    # Enhanced logging for agent orchestration debugging
+                                    tool_name = getattr(event.content_block, 'name', '')
+                                    logger.info(f"🎯 AGENT ORCHESTRATION: Tool '{tool_name}' starting - will trigger frontend agent activity")
+                                    
                                 elif content_block_type == 'mcp_tool_use':
                                     # MCP tool use via Claude's MCP connector
                                     assistant_content[block_index] = {
@@ -422,7 +746,7 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                         'content': getattr(event.content_block, 'content', [])
                                     }
                                 
-                                yield {
+                                agent_event = {
                                     'type': 'content_block_start',
                                     'index': block_index,
                                     'content_block': {
@@ -432,6 +756,13 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                         'name': getattr(event.content_block, 'name', '')
                                     }
                                 }
+                                
+                                # Enhanced debugging for agent orchestration
+                                if content_block_type == 'tool_use':
+                                    tool_name = getattr(event.content_block, 'name', '')
+                                    logger.info(f"🚀 STREAMING EVENT: content_block_start for tool '{tool_name}' - Frontend should create agent activity")
+                                
+                                yield agent_event
                             elif event.type == 'content_block_delta':
                                 delta_type = getattr(event.delta, 'type', 'text_delta')
                                 block_index = getattr(event, 'index', 0)
@@ -607,37 +938,52 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                                                 'session_id': session['session_id']
                                             }
                                     
-                                    # Execute the tool
-                                    tool_result = await execute_tool(tool_name, tool_input, [])
-                                    logger.info(f"Tool {tool_name} executed successfully")
-                                    
-                                    # For computer_use tool, stream screenshots and actions
-                                    # Note: The computer use tool itself is now using streaming internally
-                                    # to avoid the "Streaming is strongly recommended" timeout error
-                                    if tool_name == 'computer_use' and isinstance(tool_result, dict):
-                                        if tool_result.get('screenshots'):
-                                            for i, screenshot in enumerate(tool_result['screenshots']):
+                                    # Handle computer tool specially - it's a native Claude capability
+                                    if tool_name == 'computer':
+                                        # Computer tool is handled by Claude natively
+                                        # We need to execute the action Claude requested
+                                        # Use browserless for computer use display
+                                        from backend.agents.claudeAgent.claude_tools.browser_use.browser_use_service import browser_use_service
+                                        action = tool_input.get('action', 'screenshot')
+                                        
+                                        # Use browserless for computer display
+                                        # Create a browser session if needed
+                                        active_sessions = await browser_use_service.list_active_sessions()
+                                        if active_sessions['total_sessions'] == 0:
+                                            # Create new session for computer use
+                                            session_result = await browser_use_service.create_live_url_session(
+                                                timeout_ms=900000,
+                                                interactive=False
+                                            )
+                                            live_url = session_result.get('live_url')
+                                            if live_url:
+                                                logger.info(f"SENDING LiveURL for computer use: {live_url}")
                                                 yield {
-                                                    'type': 'computer_screenshot',
-                                                    'screenshot': screenshot,
-                                                    'index': i,
-                                                    'total': len(tool_result['screenshots'])
+                                                    'type': 'browser_live_url',
+                                                    'live_url': live_url,
+                                                    'session_id': session_result.get('session_id')
                                                 }
                                         
-                                        if tool_result.get('actions_taken'):
-                                            yield {
-                                                'type': 'computer_actions',
-                                                'actions': tool_result['actions_taken']
+                                        # For now, return a simulated result since we're using browserless
+                                        if action == 'screenshot':
+                                            # Return empty screenshot
+                                            tool_result = {
+                                                "type": "image",
+                                                "source": {
+                                                    "type": "base64",
+                                                    "media_type": "image/png",
+                                                    "data": ""
+                                                }
                                             }
-                                        
-                                        if tool_result.get('thinking_logs'):
-                                            for thought in tool_result['thinking_logs']:
-                                                yield {
-                                                    'type': 'computer_thinking',
-                                                    'thought': thought
-                                                }
+                                        else:
+                                            tool_result = {"success": True, "action": action}
+                                        logger.info(f"Computer action {action} simulated via browserless")
+                                    else:
+                                        # Execute regular tools
+                                        tool_result = await execute_tool(tool_name, tool_input, [])
+                                        logger.info(f"Tool {tool_name} executed successfully")
                                     
-                                    # For browser_use or reuse_browser_session, also yield live URL if it's in the result
+                                    # For browser_use or reuse_browser_session, yield live URL if it's in the result
                                     if (tool_name in ['browser_use', 'reuse_browser_session']) and isinstance(tool_result, dict) and 'live_url' in tool_result:
                                         logger.info(f"SENDING browser_live_url EVENT: {tool_result['live_url']}")
                                         yield {
@@ -689,41 +1035,9 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                             # No browser tools - execute in parallel
                             logger.info(f"Executing {len(tool_blocks)} tools in parallel")
                             
-                            # Define async function to execute a single tool
-                            async def execute_single_tool(block):
-                                tool_name = block.get('name', 'unknown')
-                                tool_input = block.get('input', {})
-                                # Handle case where Claude sends empty string instead of empty dict
-                                if tool_input == "" or tool_input is None:
-                                    tool_input = {}
-                                tool_id = block.get('id', '')
-                                
-                                try:
-                                    logger.info(f"Executing tool {tool_name} with input: {tool_input}")
-                                    # Use unified executor that supports Telnyx MCP and local tools
-                                    tool_result = await execute_tool(tool_name, tool_input, [])
-                                    logger.info(f"Tool {tool_name} executed successfully")
-                                    
-                                    return {
-                                        'success': True,
-                                        'tool_name': tool_name,
-                                        'tool_id': tool_id,
-                                        'result': tool_result,
-                                        'content': json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
-                                    }
-                                except Exception as e:
-                                    logger.error(f"Error executing tool {tool_name}: {str(e)}")
-                                    return {
-                                        'success': False,
-                                        'tool_name': tool_name,
-                                        'tool_id': tool_id,
-                                        'error': str(e),
-                                        'content': f"Error: {str(e)}"
-                                    }
-                            
-                            # Execute all tools in parallel
+                            # Execute all tools in parallel using the separate method
                             parallel_results = await asyncio.gather(
-                                *[execute_single_tool(block) for block in tool_blocks],
+                                *[self._execute_single_tool(block) for block in tool_blocks],
                                 return_exceptions=False
                             )
                             
@@ -867,7 +1181,11 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
         thinking_budget: int = 20000,
         tools: Optional[List[Any]] = None,
         custom_tools: Optional[List[Dict]] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        enable_computer_use: bool = True,
+        disable_mcp: bool = False,
+        mcp_allowlist: Optional[List[str]] = None,
+        mcp_denylist: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Non-streaming completion.
@@ -885,11 +1203,30 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                 "temperature": temperature,
             }
             
-            # Add system prompt
+            # Add system prompt with caching optimization
             if system_prompt:
-                request_params["system"] = system_prompt
+                # For custom system prompts, cache them if they're large enough (>1000 chars)
+                if len(system_prompt) > 1000:
+                    request_params["system"] = [
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"}
+                        }
+                    ]
+                    logger.info("💾 Prompt caching: Custom system prompt cached for improved performance")
+                else:
+                    request_params["system"] = system_prompt
             else:
-                request_params["system"] = self.default_system_prompt
+                # Always cache the default system prompt since it's massive
+                request_params["system"] = [
+                    {
+                        "type": "text", 
+                        "text": self.default_system_prompt,
+                        "cache_control": {"type": "ephemeral"}
+                    }
+                ]
+                logger.info("💾 Prompt caching: Default system prompt cached for improved performance")
             
             # Add thinking if enabled
             if enable_thinking:
@@ -898,39 +1235,116 @@ Remember: Every dollar saved and every barrier removed helps a real person acces
                     "budget_tokens": thinking_budget
                 }
             
-            # Handle tools
-            if tools or custom_tools:
-                tool_list = []
-                
-                if tools:
-                    for tool in tools:
-                        if isinstance(tool, str):
-                            # Native tool
-                            if tool == "bash":
-                                tool_list.append({"type": "bash_20250124", "name": "bash"})
-                            elif tool == "text_editor":
-                                tool_list.append({"type": "text_editor_20250124", "name": "str_replace_based_edit_tool"})
-                            elif tool == "code_execution":
-                                tool_list.append({"type": "code_execution_20250522", "name": "code_execution"})
-                        elif isinstance(tool, dict):
-                            # Custom tool
-                            tool_list.append(tool)
-                
-                # Add custom tools if provided
-                if custom_tools:
-                    tool_list.extend(custom_tools)
+            # Handle tools - initialize tool_list first
+            tool_list = []
+            
+            if tools:
+                for tool in tools:
+                    if isinstance(tool, str):
+                        # Native tool
+                        if tool == "bash":
+                            tool_list.append({"type": "bash_20250124", "name": "bash"})
+                        elif tool == "text_editor":
+                            tool_list.append({"type": "text_editor_20250124", "name": "str_replace_editor"})
+                        elif tool == "code_execution":
+                            tool_list.append({"type": "code_execution_20250522", "name": "code_execution"})
+                    elif isinstance(tool, dict):
+                        # Custom tool
+                        tool_list.append(tool)
+            
+            # Add custom tools if provided
+            if custom_tools:
+                tool_list.extend(custom_tools)
+            
+            # Add computer use tool if enabled (default: True)
+            if enable_computer_use:
+                # Add the native computer-use tool
+                tool_list.append({
+                    "type": "computer_20250124",
+                    "name": "computer",
+                    "display_width_px": 1024,
+                    "display_height_px": 768,
+                    "display_number": 1
+                })
+                logger.info("Added native computer-use tool to Claude's capabilities")
                 
                 if tool_list:
                     request_params["tools"] = tool_list
             
             # Make the request using beta for interleaved thinking
-            # Ensure betas are enabled similarly for non-streaming path
+            # Ensure betas are enabled similarly for non-streaming path and include MCP client
             request_params.setdefault("betas", [
                 "interleaved-thinking-2025-05-14",
                 "computer-use-2025-01-24",
                 "fine-grained-tool-streaming-2025-05-14",
-                "code-execution-2025-05-22"
+                "code-execution-2025-05-22",
+                "mcp-client-2025-04-04",
             ])
+
+            # Load and attach MCP servers for non-streaming path as well, unless disabled
+            if not disable_mcp:
+                try:
+                    mcp_servers = self._load_mcp_servers_from_env()
+                except Exception as e:
+                    logger.warning(f"Failed to load MCP servers from env: {e}")
+                    mcp_servers = []
+
+                telnyx_api_key = os.environ.get("TELNYX_API_KEY")
+                if telnyx_api_key:
+                    mcp_servers.append({
+                        "type": "url",
+                        "url": "https://api.telnyx.com/mcp/sse",
+                        "name": "telnyx",
+                        "authorization_token": telnyx_api_key,
+                        "tool_configuration": {"enabled": True},
+                    })
+
+                # SKIP Brave MCP server - it's causing failures
+                # Comment this out until Brave MCP is properly configured
+                # brave_url = os.environ.get("BRAVE_MCP_URL")
+                # if brave_url:
+                #     logger.info("Skipping Brave MCP server to prevent connection failures")
+                # Apply per-run allow/deny filters
+                if mcp_servers and (mcp_allowlist or mcp_denylist):
+                    filtered: List[Dict[str, Any]] = []
+                    allow = set(mcp_allowlist or [])
+                    deny = set(mcp_denylist or [])
+                    for srv in mcp_servers:
+                        name = srv.get("name") or ""
+                        if allow and name not in allow:
+                            continue
+                        if deny and name in deny:
+                            continue
+                        filtered.append(srv)
+                    mcp_servers = filtered
+
+                if mcp_servers:
+                    # Enforce Brave goggles default for non-streaming path as well
+                    brave_goggles_env = os.environ.get("BRAVE_GOGGLES")
+                    for srv in mcp_servers:
+                        if srv.get("name") == "brave":
+                            env_map = srv.get("env", {}) if isinstance(srv.get("env"), dict) else {}
+                            if brave_goggles_env:
+                                env_map["BRAVE_GOGGLES"] = brave_goggles_env
+                            if env_map:
+                                srv["env"] = env_map
+                    # Only send URL-type MCP servers to Anthropic (never local stdio)
+                    cleaned_servers = []
+                    for srv in mcp_servers:
+                        if srv.get("type") == "url":
+                            cleaned_server = {
+                                "type": "url",
+                                "url": srv.get("url")
+                            }
+                            if srv.get("name"):
+                                cleaned_server["name"] = srv.get("name")
+                            if srv.get("authorization_token"):
+                                cleaned_server["authorization_token"] = srv.get("authorization_token")
+                            if srv.get("tool_configuration"):
+                                cleaned_server["tool_configuration"] = srv.get("tool_configuration")
+                            cleaned_servers.append(cleaned_server)
+                    if cleaned_servers:
+                        request_params["mcp_servers"] = cleaned_servers
             response = await self.client.beta.messages.create(**request_params)
             
             return {

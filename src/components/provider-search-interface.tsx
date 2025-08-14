@@ -13,11 +13,12 @@ import type { ProviderSearchData, UserProfile, ProviderSearchResult } from "@/li
 interface ProviderSearchInterfaceProps {
   data: ProviderSearchData | null
   userProfile: UserProfile
+  onDeepResearchRequested?: (providers: ProviderSearchResult[]) => void
 }
 
 type ViewState = "prompt-builder" | "results" | "comparison" | "deep-research" | "report" | "detail"
 
-export function ProviderSearchInterface({ data, userProfile }: ProviderSearchInterfaceProps) {
+export function ProviderSearchInterface({ data, userProfile, onDeepResearchRequested }: ProviderSearchInterfaceProps) {
   const [viewState, setViewState] = useState<ViewState>(data ? "results" : "prompt-builder")
   const [selectedProviders, setSelectedProviders] = useState<ProviderSearchResult[]>([])
   const [detailedProvider, setDetailedProvider] = useState<ProviderSearchResult | null>(null)
@@ -34,6 +35,9 @@ export function ProviderSearchInterface({ data, userProfile }: ProviderSearchInt
   }
 
   const handleStartDeepResearch = () => {
+    if (onDeepResearchRequested && selectedProviders.length > 0) {
+      onDeepResearchRequested(selectedProviders)
+    }
     setViewState("deep-research")
     setTimeout(() => setViewState("report"), 8000)
   }

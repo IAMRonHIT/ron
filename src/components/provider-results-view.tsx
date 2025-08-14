@@ -1,13 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Search, Filter, MapPin, Star, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ProviderMap } from "@/components/provider-map"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import type { ProviderSearchResult } from "@/lib/types"
+import { geocodeAddress } from "@/lib/google-maps"
 
 interface ProviderResultsViewProps {
   results: ProviderSearchResult[]
@@ -18,8 +20,33 @@ interface ProviderResultsViewProps {
 export function ProviderResultsView({ results, onCompare, onViewDetails }: ProviderResultsViewProps) {
   const [selectedProviders, setSelectedProviders] = useState<ProviderSearchResult[]>([])
   const [searchTerm, setSearchTerm] = useState("")
+  const [geoResults, setGeoResults] = useState<ProviderSearchResult[]>(results)
 
-  const filteredResults = results.filter(
+  // Geocode missing coordinates
+  useEffect(() => {
+    let isActive = true
+    async function run() {
+      const enriched: ProviderSearchResult[] = []
+      for (const r of results) {
+        if (r.lat != null && r.lng != null) {
+          enriched.push(r)
+          continue
+        }
+        try {
+          const geo = await geocodeAddress(r.location)
+          if (!isActive) return
+          enriched.push({ ...r, lat: geo?.lat, lng: geo?.lng, placeId: geo?.placeId })
+        } catch {
+          enriched.push(r)
+        }
+      }
+      if (isActive) setGeoResults(enriched)
+    }
+    run()
+    return () => { isActive = false }
+  }, [results])
+
+  const filteredResults = geoResults.filter(
     (provider) =>
       provider.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       provider.specialty.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -37,6 +64,8 @@ export function ProviderResultsView({ results, onCompare, onViewDetails }: Provi
     })
   }
 
+  const center = results.length && results[0].location ? undefined : undefined
+
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <div className="flex items-center justify-between">
@@ -48,6 +77,13 @@ export function ProviderResultsView({ results, onCompare, onViewDetails }: Provi
           <Button onClick={() => onCompare(selectedProviders)}>Compare Selected ({selectedProviders.length})</Button>
         )}
       </div>
+
+      {/* Map */}
+      <ProviderMap
+        providers={geoResults}
+        theme={typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'}
+        onSelect={(p) => onViewDetails(p as any)}
+      />
 
       <div className="flex gap-4">
         <div className="relative flex-1">

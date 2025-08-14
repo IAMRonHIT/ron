@@ -1,15 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 export async function POST(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  request: Request,
+  context: any
 ) {
   try {
     const body = await request.json()
-    const { sessionId } = params
+    const { sessionId } = context.params
     
     // Proxy request to Python backend browser-use service
-    const response = await fetch(`http://localhost:8765/browser-use/session/${sessionId}/navigate`, {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8001'
+    const response = await fetch(`${backendUrl}/browser-use/session/${sessionId}/navigate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -26,9 +27,6 @@ export async function POST(
     
   } catch (error) {
     console.error('Error navigating browser-use session:', error)
-    return NextResponse.json(
-      { error: 'Failed to navigate browser-use session' },
-      { status: 500 }
-    )
+    return new NextResponse(JSON.stringify({ error: 'Failed to navigate browser-use session' }), { status: 500 })
   }
 }

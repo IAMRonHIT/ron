@@ -1,14 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  request: Request,
+  context: any
 ) {
   try {
-    const { sessionId } = params
+    const { sessionId } = context.params
     
     // Proxy request to Python backend browser-use service
-    const response = await fetch(`http://localhost:8765/browser-use/session/${sessionId}/close`, {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8001'
+    const response = await fetch(`${backendUrl}/browser-use/session/${sessionId}/close`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -24,9 +25,6 @@ export async function DELETE(
     
   } catch (error) {
     console.error('Error closing browser-use session:', error)
-    return NextResponse.json(
-      { error: 'Failed to close browser-use session' },
-      { status: 500 }
-    )
+    return new NextResponse(JSON.stringify({ error: 'Failed to close browser-use session' }), { status: 500 })
   }
 }

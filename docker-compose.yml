@@ -105,6 +105,29 @@ services:
     networks:
       - ron-ai-network
 
+  brave:
+    image: mcp/brave-search:latest
+    container_name: ron-ai-brave
+    env_file:
+      - .env
+    environment:
+      - BRAVE_MCP_TRANSPORT=http
+      - BRAVE_MCP_PORT=8080
+    ports:
+      - "8080:8080"
+    networks:
+      - ron-ai-network
+
+  agent-zero:
+    image: agent0ai/agent-zero:latest
+    container_name: ron-ai-agent-zero
+    environment:
+      - MCP_SERVER_ENABLED=true
+    ports:
+      - "8081:8080"
+    networks:
+      - ron-ai-network
+
 volumes:
   redis_data:
   postgres_data:

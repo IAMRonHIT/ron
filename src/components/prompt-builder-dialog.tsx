@@ -14,12 +14,20 @@ import {
 import { AIPromptBuilder } from "@/components/ai-prompt-builder"
 import { useUserProfile } from "@/hooks/use-user-profile"
 
-export function PromptBuilderDialog() {
+interface PromptBuilderDialogProps {
+  onSendPrompt?: (prompt: string) => void
+}
+
+export function PromptBuilderDialog({ onSendPrompt }: PromptBuilderDialogProps) {
   const [open, setOpen] = useState(false)
   const { userProfile } = useUserProfile()
 
   const handlePromptGenerated = (prompt: string) => {
-    console.log("Generated prompt:", prompt)
+    if (onSendPrompt) {
+      onSendPrompt(prompt)
+    } else {
+      console.log("Generated prompt:", prompt)
+    }
     setOpen(false)
   }
 

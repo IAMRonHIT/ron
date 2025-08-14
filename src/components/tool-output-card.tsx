@@ -45,6 +45,13 @@ interface ToolOutputCardProps {
 // Professional tool configurations with unique icons and colors
 const getToolConfiguration = (toolName: string) => {
   const configs: Record<string, any> = {
+    provider_search: {
+      icon: Search,
+      label: "Provider Search",
+      color: "bg-sky-500",
+      borderColor: "border-sky-200 dark:border-sky-800",
+      bgColor: "bg-sky-50 dark:bg-sky-950/30"
+    },
     // Browser and Web Tools
     browser_use: {
       icon: Globe,
@@ -225,7 +232,8 @@ export function ToolOutputCard({
     return String(content)
   }
   
-  const formattedContent = formatContent()
+  const formattedContentRaw = formatContent()
+  const formattedContent = typeof formattedContentRaw === 'string' ? formattedContentRaw : String(formattedContentRaw)
   const isLongContent = formattedContent.length > 500
   
   const handleCopy = async () => {
@@ -235,14 +243,14 @@ export function ToolOutputCard({
   }
   
   // Status indicators
-  const statusConfig = {
+  const statusConfig: Record<string, { text: string; color: string; pulse?: boolean }> = {
     pending: { text: "Queued", color: "text-gray-500" },
     executing: { text: "Running", color: "text-blue-500", pulse: true },
     completed: { text: "Complete", color: "text-green-500" },
     error: { text: "Failed", color: "text-red-500" }
   }
   
-  const currentStatus = statusConfig[status]
+  const currentStatus = statusConfig[status] || statusConfig.completed
   
   return (
     <Card className={cn(

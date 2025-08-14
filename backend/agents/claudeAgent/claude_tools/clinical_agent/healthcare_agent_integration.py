@@ -25,7 +25,7 @@ if not OPENAI_API_KEY:
 else:
     # Initialize the client with the API key
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-    logger.info(f"Clinical Ops initialized with OpenAI API key: {OPENAI_API_KEY[:10]}... using ft:gpt-4.1-2025-04-14")
+    logger.info(f"Clinical Ops initialized with OpenAI API key: {OPENAI_API_KEY[:10]}... using gpt-5")
 
 async def clinical_operations_query(
     query: str,
@@ -49,7 +49,7 @@ async def clinical_operations_query(
         }
     
     try:
-        logger.info(f"Clinical Ops using ft:gpt-4.1-2025-04-14 with API key: {OPENAI_API_KEY[:10]}...")
+        logger.info(f"Clinical Ops using gpt-5 with API key: {OPENAI_API_KEY[:10]}...")
         
         # Prepare the system prompt
         system_prompt = """You are a Clinical Operations AI assistant specializing in evidence-based medicine.
@@ -69,7 +69,7 @@ async def clinical_operations_query(
         
         # Make the API call
         response = await client.chat.completions.create(
-            model="ft:gpt-4.1-2025-04-14:ron-health-information-technologies-inc:ron-ai:Bxiq1PYl",
+            model="gpt-5",
             messages=messages,
             temperature=0.3,  # Lower temperature for more consistent clinical responses
             max_tokens=2000
@@ -78,7 +78,7 @@ async def clinical_operations_query(
         return {
             "success": True,
             "response": response.choices[0].message.content,
-            "model": "ft:gpt-4.1-2025-04-14:ron-health-information-technologies-inc:ron-ai:Bxiq1PYl",
+            "model": "gpt-5",
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
@@ -112,5 +112,5 @@ class HealthcareAgentIntegration:
         return {
             "api_key_status": "configured" if self.api_key else "missing",
             "client_status": "ready" if self.client else "not initialized",
-            "model": "gpt-4"
+            "model": "gpt-5"
         }

@@ -118,7 +118,6 @@ export function ComputerUseAgent({
                 </div>
                 <div>
                   <h3 className="font-semibold text-sm text-gray-900 dark:text-gray-100">Ron's Browser Window</h3>
-                  {liveUrl && <p className="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[300px]">{liveUrl}</p>}
                 </div>
               </div>
 
@@ -191,16 +190,11 @@ export function ComputerUseAgent({
               {/* Browser View */}
               <div className="flex-1 bg-white dark:bg-black">
                 {liveUrl ? (
-                  <>
-                    <div className="absolute top-0 left-0 p-2 bg-black/50 text-white text-xs z-10">
-                      LiveURL: {liveUrl}
-                    </div>
-                    <iframe
-                      src={liveUrl}
-                      className="w-full h-full border-0"
-                      title="Computer Use Agent Browser"
-                    />
-                  </>
+                  <iframe
+                    src={liveUrl}
+                    className="w-full h-full border-0"
+                    title="Computer Use Agent Browser"
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-900">
                     <div className="text-center">

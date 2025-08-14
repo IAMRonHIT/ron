@@ -60,19 +60,55 @@ class BrowserUseService:
         try:
             logger.info(f"Creating browser-use session {session_id} with Browserless")
             
-            # Use provided browser profile or create default one
+            # Use provided browser profile or create enhanced stealth profile
             from browser_use import BrowserProfile
+            import random
+            
             if browser_profile is None:
                 browser_profile = BrowserProfile(
-                    headless=False,  # For human-in-the-loop workflows
-                    viewport={"width": 1280, "height": 900},
-                    wait_between_actions=0.1  # Reduced from 0.3 for faster actions
+                    headless=False,  # Headless is easier to detect
+                    viewport={"width": 1920, "height": 1080},  # Standard desktop size
+                    wait_between_actions=random.uniform(1.0, 2.0),  # Human-like random delays
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    locale="en-US",
+                    timezone_id="America/New_York"
                 )
             
-            # Create browser-use session with browserless WSS URL
-            # Using documented format: cdp_url with stealth as query parameter
+            # Build CDP URL with enhanced anti-detection
+            cdp_params = [
+                f"token={browserless_token}",
+                f"timeout={timeout_ms}",
+                "stealth=true",  # Enable stealth mode
+                "blockAds=true",  # Block ads to reduce fingerprinting
+                "trackingId=false",  # Disable tracking
+            ]
+            
+            # Add launch args for better stealth - properly JSON encode
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox"
+            ]
+            # Properly JSON encode the launch parameters
+            import json
+            import urllib.parse
+            launch_config = {"args": launch_args}
+            launch_json = json.dumps(launch_config)
+            # URL encode the JSON for safe transmission
+            launch_encoded = urllib.parse.quote(launch_json)
+            cdp_params.append(f"launch={launch_encoded}")
+            
+            # Add residential proxy if configured
+            if os.getenv('BROWSERLESS_USE_RESIDENTIAL_PROXY') == 'true':
+                cdp_params.append("proxy=residential")
+            
+            # Use stealth endpoint instead of regular chrome endpoint
+            cdp_url = f"wss://production-sfo.browserless.io/chrome/stealth?{'&'.join(cdp_params)}"
+            
+            # Create browser-use session
             browser_session = BrowserSession(
-                cdp_url=f"wss://production-sfo.browserless.io/chrome?token={browserless_token}&timeout={timeout_ms}&stealth=true",
+                cdp_url=cdp_url,
                 browser_profile=browser_profile,
                 keep_alive=True  # Prevents session from closing after agent.run()
             )
@@ -87,6 +123,26 @@ class BrowserUseService:
             
             # Get current page (for browser-use agent)
             page = await browser_session.get_current_page()
+            
+            # Add anti-detection scripts
+            await page.add_init_script("""
+                // Override navigator.webdriver
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                
+                // Override navigator.plugins to look more realistic
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                // Add chrome runtime
+                window.chrome = {
+                    runtime: {},
+                };
+            """)
+            
+            # Let the browser-use agent decide where to navigate
             
             # Create CDP session for LiveURL generation using the page from browser_session
             try:
@@ -478,7 +534,7 @@ class BrowserUseService:
             logger.info(f"Using OpenAI API key: {openai_api_key[:10]}...")
                 
             llm = ChatOpenAI(
-                model="gpt-4.1",
+                model="gpt-4o",  # Use latest model
                 api_key=openai_api_key
             )
             

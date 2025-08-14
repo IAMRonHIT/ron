@@ -84,32 +84,27 @@ except ImportError as e:
     logger.warning(f"Claude Code SDK not available: {e}")
     claude_code_api = None
 
-# Deep Research Agent Integration (optional)
-try:
-    # Import using the wrapper which handles all the path and import logic
-    from backend.agents.deepResearch.deep_research_agent import root_agent as deep_research_root_agent
-    DEEP_RESEARCH_AVAILABLE = True
-    
-    if DEEP_RESEARCH_AVAILABLE:
-        # Import ADK components needed for the runner
-        from google.adk.runners import InMemoryRunner
-        from google.adk.agents import RunConfig
-        from google.adk.agents import LiveRequestQueue
-        from google.genai import types as genai_types
-        logger.info("Deep Research Agent loaded successfully!")
-    else:
-        logger.error("Deep Research Agent not available from wrapper")
+# Deep Research Agent Integration - ALWAYS ENABLED
+DEEP_RESEARCH_AVAILABLE = True
+deep_research_root_agent = None
+if True:  # Always enable
+    try:
+        # Import using the wrapper which handles all the path and import logic
+        from backend.agents.deepResearch.deep_research_integration import root_agent as deep_research_root_agent
+        DEEP_RESEARCH_AVAILABLE = deep_research_root_agent is not None
+        if DEEP_RESEARCH_AVAILABLE:
+            from google.adk.runners import InMemoryRunner
+            from google.adk.agents import RunConfig
+            from google.adk.agents import LiveRequestQueue
+            from google.genai import types as genai_types
+            logger.info("Deep Research Agent loaded successfully!")
+        else:
+            logger.warning("Deep Research Agent wrapper imported but no root_agent was found")
+            deep_research_root_agent = None
+    except Exception as e:
+        logger.warning(f"Deep Research Agent unavailable: {e}")
+        DEEP_RESEARCH_AVAILABLE = False
         deep_research_root_agent = None
-        
-except ImportError as e:
-    logger.error(f"Deep Research Agent import failed: {e}")
-    logger.error(f"Make sure Google ADK is installed: pip install google-genai google-adk")
-    DEEP_RESEARCH_AVAILABLE = False
-    deep_research_root_agent = None
-except Exception as e:
-    logger.error(f"Unexpected error loading Deep Research Agent: {e}")
-    DEEP_RESEARCH_AVAILABLE = False
-    deep_research_root_agent = None
 
 # Agent stage mapping for human-readable names
 AGENT_STAGES = {
@@ -136,7 +131,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS
+# Configure CORS with proper SSE support
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -145,11 +140,29 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "https://localhost:3000", # HTTPS variants
-        "https://localhost:3001"
+        "https://localhost:3001",
+        "https://ron-ai.vercel.app", # Production
+        "https://*.vercel.app" # Vercel previews
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "*",
+        "Content-Type",
+        "Authorization",
+        "Cache-Control",
+        "Accept",
+        "Accept-Encoding",
+        "Connection",
+        "Keep-Alive",
+        "X-Requested-With"
+    ],
+    expose_headers=[
+        "Content-Type",
+        "Cache-Control", 
+        "Connection",
+        "Keep-Alive"
+    ]
 )
 
 # Initialize agents
@@ -651,7 +664,14 @@ async def chat(request: ChatRequest):
             
             return StreamingResponse(
                 stream_generator(),
-                media_type="text/event-stream"
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Cache-Control",
+                    "X-Accel-Buffering": "no"  # Disable nginx buffering
+                }
             )
         
         # Non-streaming response - but with many tools, Anthropic requires streaming
@@ -698,7 +718,14 @@ async def chat(request: ChatRequest):
             
             return StreamingResponse(
                 stream_generator(),
-                media_type="text/event-stream"
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Cache-Control",
+                    "X-Accel-Buffering": "no"  # Disable nginx buffering
+                }
             )
         elif enabled_tools:
             # Use complete_with_tools when we have custom tools
@@ -898,6 +925,76 @@ async def analyze_files(request: FileAnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Computer Use VNC Endpoints
+@app.post("/computer-use/initialize")
+async def initialize_computer_use():
+    """
+    Initialize VNC session for computer use and return VNC URL for iframe.
+    """
+    try:
+        from backend.agents.claudeAgent.claude_tools.computer_use.vnc_computer_handler import computer_handler
+        
+        result = await computer_handler.initialize_session()
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return {
+            "success": True,
+            "vnc_url": result.get("vnc_url"),
+            "display": result.get("display"),
+            "message": "VNC session initialized. Embed vnc_url in an iframe."
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize computer use: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/computer-use/vnc-url")
+async def get_vnc_url():
+    """
+    Get the current VNC URL for iframe embedding.
+    """
+    try:
+        from backend.agents.claudeAgent.claude_tools.computer_use.vnc_computer_handler import computer_handler
+        
+        vnc_url = computer_handler.get_vnc_url()
+        
+        if not vnc_url:
+            # Try to initialize if not already done
+            result = await computer_handler.initialize_session()
+            vnc_url = result.get("vnc_url", computer_handler.get_vnc_url())
+        
+        return {
+            "success": True,
+            "vnc_url": vnc_url,
+            "message": "Use this URL in an iframe to display the VNC session"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get VNC URL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/computer-use/close")
+async def close_computer_use():
+    """
+    Close the VNC session for computer use.
+    """
+    try:
+        from backend.agents.claudeAgent.claude_tools.computer_use.vnc_computer_handler import computer_handler
+        
+        result = await computer_handler.close_session()
+        
+        return {
+            "success": True,
+            "message": "VNC session closed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to close computer use session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/mcp/test-connector", response_model=MCPConnectorTestResponse)
 async def test_mcp_connector(request: MCPConnectorTestRequest):
     """
@@ -1039,31 +1136,18 @@ Please:
             logger.error(f"Error in Claude fallback: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    # Original deep research implementation with ADK agents
-    logger.info("Using actual Deep Research Agent with Google ADK")
+    # Use lightweight deep research system (no ADK)
+    logger.info("Using lightweight Deep Research Agent system")
     try:
         logger.info(f"Deep research request received - sessionId: {request.sessionId}, userId: {request.userId}")
         
-        # Import required classes
-        from google.adk.runners import Runner
-        from google.adk.sessions import InMemorySessionService
-        
-        # Create session service
-        session_service = InMemorySessionService()
-        
-        # Create session with the provided session ID
-        await session_service.create_session(
-            app_name=request.appName or APP_NAME,
-            user_id=request.userId,
-            session_id=request.sessionId
-        )
-        
-        # Create runner with the session service
-        runner = Runner(
-            agent=deep_research_root_agent,
-            app_name=request.appName or APP_NAME,
-            session_service=session_service
-        )
+        # Get the actual agent from the wrapper
+        if hasattr(deep_research_root_agent, 'agent'):
+            agent = deep_research_root_agent.agent
+        else:
+            # Fallback - create a new instance if needed
+            from backend.agents.deepResearch.deep_research_integration import DeepResearchAgent
+            agent = DeepResearchAgent()
         
         # Create message for agent directly from the request
         # Ensure message is not None
@@ -1074,11 +1158,6 @@ Please:
         if not isinstance(message_text, str):
             logger.error(f"Invalid message type: {type(message_text)}")
             raise HTTPException(status_code=400, detail="Message must be a string")
-            
-        message = genai_types.Content(
-            role="user",
-            parts=[genai_types.Part(text=message_text)]
-        )
         
         logger.info("Starting deep research agent execution...")
         
@@ -1086,26 +1165,35 @@ Please:
         async def event_stream():
             try:
                 event_count = 0
-                # Run the agent and stream events
-                async for event in runner.run_async(
-                    user_id=request.userId,
-                    session_id=request.sessionId,
-                    new_message=message
-                ):
+                # Run the agent and stream events using run_sse method
+                async for event in agent.run_sse(message_text):
                     event_count += 1
                     if event_count % 10 == 0:
                         logger.info(f"Processed {event_count} events from deep research agent")
                     
-                    # Log event details for debugging
-                    logger.debug(f"Event {event_count}: type={type(event)}, hasattr(content)={hasattr(event, 'content')}")
+                    # Our events are dicts with 'type', 'phase', 'message', 'progress'
+                    logger.debug(f"Event {event_count}: {event}")
                     
-                    # Get author and map to human-readable stage
-                    author = getattr(event, 'author', 'unknown')
-                    stage = AGENT_STAGES.get(author, author)
+                    # Handle different event types from our SSE stream
+                    if isinstance(event, dict):
+                        event_type = event.get('type', 'status')
+                        phase = event.get('phase', 'unknown')
+                        message = event.get('message', '')
+                        progress = event.get('progress', 0)
+                        
+                        # Map phase to author and stage
+                        author = phase
+                        stage = AGENT_STAGES.get(phase, phase)
+                    else:
+                        author = 'unknown'
+                        stage = 'Processing'
+                        event_type = 'status'
+                        message = str(event)
+                        progress = 0
                     
                     # Convert event to format expected by frontend
                     event_data = {
-                        "content": None,
+                        "content": message,
                         "usageMetadata": {
                             "candidatesTokenCount": 0,
                             "promptTokenCount": 0,
@@ -1113,96 +1201,48 @@ Please:
                         },
                         "author": author,
                         "stage": stage,  # Human-readable stage name
+                        "phase": phase,  # Original phase name
+                        "progress": progress,  # Progress percentage
                         "actions": {
                             "stateDelta": {},
                             "artifactDelta": {},
                             "requestedAuthConfigs": {}
                         },
                         "longRunningToolIds": [],
-                        "id": getattr(event, 'id', f"event_{datetime.now().timestamp()}"),
+                        "id": event.get('id', f"event_{datetime.now().timestamp()}") if isinstance(event, dict) else f"event_{datetime.now().timestamp()}",
                         "timestamp": datetime.now().timestamp()
                     }
                     
-                    # Determine event type
-                    event_type = "message"
-                    
-                    # Add content if available
-                    if hasattr(event, 'content') and event.content:
-                        # Extract actual text from the content
-                        text_content = ""
-                        if hasattr(event.content, 'parts') and event.content.parts is not None:
-                            for part in event.content.parts:
-                                if hasattr(part, 'text') and part.text is not None:
-                                    text_content += str(part.text)
-                                elif hasattr(part, 'function_call') and part.function_call:
-                                    # Handle function calls
-                                    event_type = "tool_use"
-                                    tool_name = getattr(part.function_call, 'name', 'unknown')
-                                    if tool_name == 'google_search':
-                                        text_content += f"🔍 Searching the web..."
-                                    elif 'playwright' in tool_name.lower():
-                                        text_content += f"🌐 Using browser to visit scholarly sources..."
-                                    else:
-                                        text_content += f"🛠️ Using tool: {tool_name}"
-                                elif hasattr(part, 'function_response') and part.function_response:
-                                    # Handle function responses
-                                    event_type = "tool_result"
-                                    if hasattr(part.function_response, 'response') and part.function_response.response and 'result' in part.function_response.response:
-                                        result = part.function_response.response['result']
-                                        # Truncate long results
-                                        if result and len(str(result)) > 500:
-                                            text_content += str(result)[:500] + "..."
-                                        elif result:
-                                            text_content += str(result)
-                                        else:
-                                            text_content += "✓ Tool completed"
-                                    else:
-                                        text_content += "✓ Tool completed"
+                    # Handle complete event specially
+                    if event_type == 'complete' and isinstance(event, dict):
+                        result = event.get('result', {})
+                        if result.get('success'):
+                            # Send the final result
+                            event_data['content'] = result.get('output', '')
+                            event_data['sources'] = result.get('sources', [])
+                            event_data['metadata'] = result.get('metadata', {})
+                            event_data['hallucination_check'] = result.get('hallucination_check', {})
+                    elif event_type == 'error' and isinstance(event, dict):
+                        event_data['content'] = f"Error: {event.get('error', 'Unknown error')}"
+                        event_data['error'] = True
+                    elif event_type == 'progress' and isinstance(event, dict):
+                        # Show active agents for this phase
+                        agents_active = event.get('agents_active', [])
+                        if agents_active:
+                            event_data['content'] = f"{message} - Active: {', '.join(agents_active)}"
                         else:
-                            text_content = str(event.content)
-                        
+                            event_data['content'] = message
+                    
+                    # Format the event data for SSE
+                    # Convert content to the expected format
+                    if event_data['content']:
                         event_data["content"] = {
-                            "parts": [{"text": text_content}],
+                            "parts": [{"text": event_data['content']}],
                             "role": "model"
                         }
-                        event_data["type"] = event_type
                     
-                    # Add state delta information from event actions
-                    if hasattr(event, 'actions') and event.actions:
-                        if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
-                            event_data["actions"]["stateDelta"] = event.actions.state_delta
-                        if hasattr(event.actions, 'artifact_delta') and event.actions.artifact_delta:
-                            event_data["actions"]["artifactDelta"] = event.actions.artifact_delta
-                    
-                    # Add session state information
-                    # Get the session from the session service
-                    session = await session_service.get_session(
-                        app_name=request.appName or APP_NAME,
-                        user_id=request.userId,
-                        session_id=request.sessionId
-                    )
-                    if session and hasattr(session, 'state') and session.state:
-                        # Add research plan if available
-                        if "research_plan" in session.state:
-                            event_data["actions"]["stateDelta"]["research_plan"] = session.state["research_plan"]
-                        
-                        # Add final report if available
-                        if "final_report_with_citations" in session.state:
-                            event_data["actions"]["stateDelta"]["final_report_with_citations"] = session.state["final_report_with_citations"]
-                        
-                        # Add other important state fields
-                        if "section_research_findings" in session.state:
-                            event_data["actions"]["stateDelta"]["section_research_findings"] = session.state["section_research_findings"]
-                        if "report_sections" in session.state:
-                            event_data["actions"]["stateDelta"]["report_sections"] = session.state["report_sections"]
-                        if "research_evaluation" in session.state:
-                            event_data["actions"]["stateDelta"]["research_evaluation"] = session.state["research_evaluation"]
-                        
-                        # Add sources and url mapping
-                        if "sources" in session.state:
-                            event_data["actions"]["stateDelta"]["sources"] = session.state["sources"]
-                        if "url_to_short_id" in session.state:
-                            event_data["actions"]["stateDelta"]["url_to_short_id"] = session.state["url_to_short_id"]
+                    # Set the event type
+                    event_data["type"] = event_type
                     
                     yield f"data: {json.dumps(event_data)}\n\n"
                 
@@ -1212,10 +1252,11 @@ Please:
                 logger.error(f"Error in deep research event stream: {str(e)}", exc_info=True)
                 error_event = {
                     "content": {
-                        "parts": [{"text": f"Error: {str(e)}"}],
+                        "parts": [{"text": f"Error in deep research: {str(e)}"}],
                         "role": "model"
                     },
                     "author": "error_handler",
+                    "type": "error",
                     "actions": {"stateDelta": {}, "artifactDelta": {}, "requestedAuthConfigs": {}},
                     "id": f"error_{datetime.now().timestamp()}",
                     "timestamp": datetime.now().timestamp()

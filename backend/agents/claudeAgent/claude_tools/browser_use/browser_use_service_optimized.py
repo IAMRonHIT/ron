@@ -87,12 +87,26 @@ class OptimizedBrowserUseService:
             # Get page for LiveURL generation
             page = await self._session.get_current_page()
             
-            # Connect to browserless for LiveURL
+            # Connect to browserless for LiveURL with proper launch parameters
+            import json
+            import urllib.parse
+            
+            # Build proper CDP URL with JSON-encoded launch parameters
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox"
+            ]
+            launch_config = {"args": launch_args}
+            launch_json = json.dumps(launch_config)
+            launch_encoded = urllib.parse.quote(launch_json)
+            
+            cdp_url = f"wss://production-sfo.browserless.io/chrome/stealth?token={browserless_token}&timeout={timeout_ms}&stealth=true&launch={launch_encoded}"
+            
             from playwright.async_api import async_playwright
             playwright = await async_playwright().start()
-            browser = await playwright.chromium.connect_over_cdp(
-                f"wss://production-sfo.browserless.io/chrome/stealth?token={browserless_token}&timeout={timeout_ms}"
-            )
+            browser = await playwright.chromium.connect_over_cdp(cdp_url)
             
             # Get CDP session for LiveURL
             context = browser.contexts[0]
@@ -153,7 +167,7 @@ class OptimizedBrowserUseService:
                 raise ValueError("OPENAI_API_KEY environment variable is required")
             
             llm = ChatOpenAI(
-                model="gpt-4.1",
+                model="gpt-5",
                 api_key=openai_api_key
             )
             
