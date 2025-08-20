@@ -99,14 +99,7 @@ export function ComputerUseAgent({
             stiffness: 300,
           }}
           className={`
-            fixed z-30
-            ${
-              isMobile
-                ? "inset-0"
-                : isMaximized
-                  ? "inset-0"
-                  : "top-4 right-4 bottom-4 left-[50%]"
-            }
+            ${isMobile ? "fixed inset-0 z-30" : "h-full w-full"}
           `}
         >
           <div className="h-full w-full flex flex-col bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-2xl overflow-hidden">

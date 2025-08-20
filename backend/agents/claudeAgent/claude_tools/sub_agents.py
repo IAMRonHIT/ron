@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 import os
 
-from backend.agents.claudeAgent.claude_completions import ClaudeCompletions
+# Import moved inside functions to avoid circular dependency
 
 
 @dataclass
@@ -168,6 +168,8 @@ async def _run_via_streaming(
     Drive a single assistant turn via streaming, executing tools as needed,
     and return the final assistant text plus a log of tool calls.
     """
+    # Lazy import to avoid circular dependency
+    from backend.agents.claudeAgent.claude_completions import ClaudeCompletions
     claude = ClaudeCompletions()
     messages: List[Dict[str, Any]] = [
         {"role": "user", "content": user_prompt},

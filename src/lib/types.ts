@@ -58,6 +58,7 @@ export interface ProviderSearchResult {
   insurance: string[]
   imageUrl?: string
   aiSummary?: string
+  placeId?: string
   // Optional coordinates for map plotting
   lat?: number
   lng?: number
@@ -114,3 +115,26 @@ export type AgentStatus =
   | "scheduling"
   | "researching"
   | "completed"
+
+export interface ConversationEvent {
+  id: string
+  type: "user_message" | "assistant_message" | "thinking" | "tool_call" | "tool_result" | "agent_spawn" | "agent_result" | "error" | "parallel_group"
+  timestamp: Date
+  status: "pending" | "streaming" | "completed" | "error" | "executing"
+  data: {
+    role?: "user" | "assistant"
+    content?: string
+    reasoning?: string
+    reasoningTokens?: number
+    toolName?: string
+    toolInput?: any
+    toolOutput?: any
+    agentName?: string
+    agentSpecialty?: string
+    agentTask?: string
+    error?: string
+    events?: ConversationEvent[]
+    isParallel?: boolean
+    groupId?: string
+  }
+}

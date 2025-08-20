@@ -104,6 +104,22 @@
     overflow-y: auto;
     scroll-behavior: smooth;
   }
+  
+  .streaming-text {
+    position: relative;
+  }
+  
+  .streaming-text::after {
+    content: '▊';
+    animation: blink 1s infinite;
+    color: hsl(var(--primary));
+    font-weight: normal;
+  }
+  
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
 }
 
 @keyframes fadeIn {

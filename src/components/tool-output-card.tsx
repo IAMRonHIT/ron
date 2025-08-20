@@ -40,6 +40,8 @@ interface ToolOutputCardProps {
   timestamp?: Date
   status?: "pending" | "executing" | "completed" | "error"
   className?: string
+  isToolCall?: boolean
+  isToolResult?: boolean
 }
 
 // Professional tool configurations with unique icons and colors
@@ -210,7 +212,9 @@ export function ToolOutputCard({
   content, 
   timestamp, 
   status = "completed",
-  className 
+  className,
+  isToolCall = false,
+  isToolResult = false
 }: ToolOutputCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [copied, setCopied] = useState(false)

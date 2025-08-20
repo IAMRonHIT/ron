@@ -184,12 +184,7 @@ export default function HealthCopilot() {
           }
           
           // Create assistant message placeholder
-          const assistantMessage: Message = {
-            role: "assistant",
-            content: "",
-            timestamp: new Date(),
-          }
-          setMessages(prev => [...prev, assistantMessage])
+          // DO NOT add empty assistant message - wait for actual content
           
           // Stream from deep research endpoint
           console.log("Calling deepResearch with:", {
@@ -441,12 +436,7 @@ export default function HealthCopilot() {
           }
 
           // Create assistant message placeholder
-          const assistantMessage: Message = {
-            role: "assistant",
-            content: "",
-            timestamp: new Date(),
-          }
-          setMessages(prev => [...prev, assistantMessage])
+          // DO NOT add empty assistant message - wait for actual content
 
           // Stream the response with interleaved thinking
           const stream = await claudeAPI.chatStream({
@@ -919,21 +909,18 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
             // Handle message completion
             else if (event.type === 'message_stop') {
               console.log("Message completed", event.data?.final ? "(final)" : "")
-            }
-            
-            // Update the assistant message
-            setMessages(prev => {
-              const newMessages = [...prev]
-              if (newMessages.length > 0 && newMessages[newMessages.length - 1].role === "assistant") {
-                newMessages[newMessages.length - 1] = {
-                  ...newMessages[newMessages.length - 1],
+              
+              // Add final message to array ONLY when streaming is complete
+              if (fullContent) {
+                setMessages(prev => [...prev, {
+                  role: "assistant",
                   content: fullContent,
                   reasoning: fullReasoning,
-                  reasoningTokens: reasoningTokens
-                }
+                  reasoningTokens: reasoningTokens,
+                  timestamp: new Date()
+                }])
               }
-              return newMessages
-            })
+            }
           }
         }
 
@@ -1131,8 +1118,10 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
 
             {showCareTeam && <CareTeamPanel onClose={() => setShowCareTeam(false)} />}
 
-            <main className="flex-1 pb-[300px] px-4 py-6 overflow-y-auto">
-              <div className="max-w-4xl mx-auto">
+            <main className="flex-1 pb-24 px-4 py-6 overflow-y-auto">
+              <div className={`mx-auto transition-all duration-500 ${
+                agentState.isActive ? "max-w-full pr-2" : "max-w-4xl"
+              }`}>
                 {messages.length === 0 ? (
                   <div className="text-center py-8 animate-fade-in">
                     <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-4">
@@ -1164,20 +1153,18 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                     {/* Show agent orchestration */}
                     <AgentOrchestration 
                       activities={agentActivities}
-                      currentAgent={currentOrchestrationAgent}
+                      currentAgent={currentOrchestrationAgent || undefined}
                       isActive={isAgentOrchestrationActive}
                     />
                     
                     {/* Show thinking during streaming */}
                     {isProcessing && currentReasoning && (
-                      <div className="animate-slide-up mb-4">
-                        <ThinkingBubble
-                          content={currentReasoning}
-                          tokenCount={reasoningTokens}
-                          isStreaming={true}
-                          className=""
-                        />
-                      </div>
+                      <ThinkingBubble
+                        content={currentReasoning}
+                        tokenCount={reasoningTokens}
+                        isStreaming={true}
+                        className="animate-slide-up mb-4"
+                      />
                     )}
                     
                     {/* Show tool outputs */}
@@ -1193,29 +1180,17 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                       </div>
                     ))}
                     
-                    {isProcessing && !currentReasoning && toolOutputs.length === 0 && (
-                      <AgentStatusIndicator
-                        currentAgent={{
-                          type: "general",
-                          name: isDeepResearch ? "Deep Research Agent" : "Claude Sonnet 4",
-                          description: isDeepResearch ? "Conducting comprehensive research..." : "Processing your request..."
-                        }}
-                        status="processing"
-                      />
-                    )}
   
                     {messages.map((msg, i) => (
                       <div key={i} className="animate-slide-up">
                         {/* Show thinking view for messages with reasoning */}
                         {msg.role === "assistant" && msg.reasoning && (
-                          <div className="mb-4">
-                            <ThinkingBubble
-                              content={msg.reasoning}
-                              tokenCount={msg.reasoningTokens}
-                              isStreaming={false}
-                              className=""
-                            />
-                          </div>
+                          <ThinkingBubble
+                            content={msg.reasoning}
+                            tokenCount={msg.reasoningTokens}
+                            isStreaming={false}
+                            className="mb-4"
+                          />
                         )}
                         <MessageCard
                           role={msg.role}
@@ -1260,6 +1235,19 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                         )}
                       </div>
                     ))}
+                    
+                    {/* Show streaming assistant message ONLY when content arrives */}
+                    {currentStreamingMessage && (
+                      <div className="animate-slide-up">
+                        <MessageCard
+                          role="assistant"
+                          content={currentStreamingMessage}
+                          timestamp={new Date()}
+                          isStreaming={true}
+                        />
+                      </div>
+                    )}
+                    
                     <div ref={messagesEndRef} />
                   </div>
                 )}
@@ -1269,7 +1257,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               </div>
             </main>
 
-            <div className="fixed bottom-0 left-0 right-0 p-4 z-50">
+            <div className="fixed bottom-0 left-0 right-0 z-50">
               <div className="max-w-4xl mx-auto">
                 <Card className="bg-card/95 backdrop-blur-xl shadow-2xl border-border/50">
                   <div className="p-4">
@@ -1413,7 +1401,10 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
           </div>
         </div>
 
-        <div className="hidden md:block">
+        <div className="hidden md:flex md:flex-row md:w-full">
+          <div className={`flex flex-col transition-all duration-500 ${
+            agentState.isActive ? "w-1/2" : "w-full"
+          }`}>
           <header
             className={`fixed top-0 z-10 flex items-center justify-between py-8 px-6 pl-20 bg-background/80 backdrop-blur-sm border-b border-border transition-all duration-500 ${
               agentState.isActive ? "left-0 right-1/2" : "left-0 right-0"
@@ -1460,9 +1451,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
           {showCareTeam && <CareTeamPanel onClose={() => setShowCareTeam(false)} />}
 
           <main
-            className={`flex-1 pb-[400px] pt-32 mx-4 my-[25px] transition-all duration-500 overflow-y-auto ${
-              agentState.isActive ? "mr-[50vw]" : ""
-            }`}
+            className="flex-1 pb-32 pt-32 overflow-y-auto"
           >
             <div className="container max-w-7xl mx-auto px-6">
               {messages.length === 0 ? (
@@ -1495,14 +1484,12 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                   )}
                   {/* Show thinking during streaming */}
                   {isProcessing && currentReasoning && (
-                    <div className="animate-slide-up mb-6">
-                      <ThinkingBubble
-                        content={currentReasoning}
-                        tokenCount={reasoningTokens}
-                        isStreaming={true}
-                        className=""
-                      />
-                    </div>
+                    <ThinkingBubble
+                      content={currentReasoning}
+                      tokenCount={reasoningTokens}
+                      isStreaming={true}
+                      className="animate-slide-up mb-6"
+                    />
                   )}
                   
                   {/* Show tool outputs */}
@@ -1544,14 +1531,12 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                     <div key={i} className="animate-slide-up">
                       {/* Show thinking view for messages with reasoning */}
                       {msg.role === "assistant" && msg.reasoning && (
-                        <div className="mb-6">
-                          <ThinkingBubble
-                            content={msg.reasoning}
-                            tokenCount={msg.reasoningTokens}
-                            isStreaming={false}
-                            className=""
-                          />
-                        </div>
+                        <ThinkingBubble
+                          content={msg.reasoning}
+                          tokenCount={msg.reasoningTokens}
+                          isStreaming={false}
+                          className="mb-6"
+                        />
                       )}
                       <MessageCard
                         role={msg.role}
@@ -1599,6 +1584,19 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
                       )}
                     </div>
                   ))}
+                  
+                  {/* Show streaming assistant message ONLY when content arrives - DESKTOP */}
+                  {currentStreamingMessage && (
+                    <div className="animate-slide-up">
+                      <MessageCard
+                        role="assistant"
+                        content={currentStreamingMessage}
+                        timestamp={new Date()}
+                        isStreaming={true}
+                      />
+                    </div>
+                  )}
+                  
                   <div ref={messagesEndRef} />
                 </div>
               )}
@@ -1609,7 +1607,7 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
           </main>
 
           <div
-            className={`fixed bottom-0 p-6 transition-all duration-300 z-50 ${
+            className={`fixed bottom-0 transition-all duration-300 z-50 ${
               agentState.isActive ? "left-0 right-1/2" : "left-0 right-0"
             } ${isOpen ? "ml-64" : "ml-16"}`}
           >
@@ -1713,15 +1711,20 @@ ${isDeepResearch ? "DEEP RESEARCH MODE: Perform comprehensive research with mult
               </Card>
             </div>
           </div>
+          </div>
 
-          <ComputerUseAgent
-            isVisible={agentState.isActive}
-            onClose={async () => await stopAgent()}
-            task={agentState.currentTask || undefined}
-            liveUrl={agentState.liveUrl || undefined}
-            isMobile={false}
-            browserActions={browserActions}
-          />
+          {agentState.isActive && (
+            <div className="w-1/2 fixed right-0 top-0 bottom-0 z-40">
+              <ComputerUseAgent
+                isVisible={true}
+                onClose={async () => await stopAgent()}
+                task={agentState.currentTask || undefined}
+                liveUrl={agentState.liveUrl || undefined}
+                isMobile={false}
+                browserActions={browserActions}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

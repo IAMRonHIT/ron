@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from pathlib import Path
 
-from backend.agents.claudeAgent.claude_completions import ClaudeCompletions
+# Import moved inside methods to avoid circular dependency
 from backend.agents.claudeAgent.claude_tools.sub_agents import SubAgentConfig, _combined_catalog, _select_tools
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,8 @@ class AgentOrchestrator:
     
     def __init__(self):
         self.active_agents: Dict[str, Dict[str, Any]] = {}
+        # Lazy import to avoid circular dependency
+        from backend.agents.claudeAgent.claude_completions import ClaudeCompletions
         self.claude = ClaudeCompletions()
         
     async def spawn_agent(

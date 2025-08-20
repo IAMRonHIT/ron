@@ -75,16 +75,16 @@ export function MessageCard({
         
         {/* Message Card */}
         <Card className={cn(
-          "px-4 py-3 shadow-sm",
+          "px-4 py-3 transition-all duration-200",
           isUser 
-            ? "bg-primary text-primary-foreground border-primary/20" 
-            : "bg-card border-border/50",
-          isStreaming && "animate-pulse-subtle"
+            ? "bg-primary text-primary-foreground border-primary/20 shadow-md hover:shadow-lg" 
+            : "bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900/70 dark:to-slate-800/50 border-slate-200 dark:border-slate-700 shadow-md hover:shadow-lg"
         )}>
           <div className={cn(
             "prose prose-sm max-w-none",
             isUser && "prose-invert",
             !isUser && "dark:prose-invert",
+            isStreaming && !isUser && "streaming-text",
             // Adjust prose styles for better readability
             "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
             "[&_p]:leading-relaxed",

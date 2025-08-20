@@ -39,6 +39,10 @@
     "adk-python/**",
     "claude_code_sdk_backup/**",
     "claude-computer-use-backup/**",
-    "claude-computer-use/**"
+    "claude-computer-use/**",
+    "say-hello/**",
+    "brave-search-mcp-server/**",
+    "telnyx-mcp-server/**",
+    "backend/**"
   ]
 }
