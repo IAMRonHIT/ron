@@ -6,6 +6,8 @@ import AgentCardGrid from '@/components/agent-cards/AgentCardGrid';
 import ChatView from '@/components/chat/ChatView';
 import AgentEcosystemView from '@/components/agents/AgentEcosystemView';
 import BrowserView from '@/components/browser/BrowserView';
+import CodeView from '@/components/code/CodeView';
+import ResearchView from '@/components/research/ResearchView';
 import { useRonAIStore } from '@/lib/ron-ai-store';
 
 /**
@@ -24,11 +26,9 @@ export default function RonAIRedesignPage() {
       case 'agents':
         return <AgentEcosystemView />;
       case 'research':
-        // Placeholder for future view
-        return <div className="p-6">Research View (Coming Soon)</div>;
+        return <ResearchView />;
       case 'code':
-        // Placeholder for future view
-        return <div className="p-6">Code View (Coming Soon)</div>;
+        return <CodeView />;
       case 'browser':
         return <BrowserView />;
       default:

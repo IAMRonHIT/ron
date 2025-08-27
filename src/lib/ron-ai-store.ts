@@ -3,6 +3,18 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { Message as BaseMessage, Agent as BaseAgent } from './types';
 
+// --- New Interfaces for Phase 5 ---
+export type DeploymentStatus = 'idle' | 'in-progress' | 'success' | 'error';
+
+export interface PubMedArticle {
+  id: string;
+  title: string;
+  authors: string[];
+  publication: string;
+  summary: string;
+  url: string;
+}
+
 // --- Redefined Interfaces for the Store ---
 
 // A message in the chat, ensuring it has an ID.
@@ -83,6 +95,12 @@ export interface RonAIState {
   codeFiles: CodeFile[];
   browserSessions: BrowserSession[];
 
+  // Phase 5: Advanced Features State
+  deploymentStatus: DeploymentStatus;
+  deploymentMessage: string;
+  pubmedArticles: PubMedArticle[];
+  deepResearchStreamContent: string;
+
   // UI State
   activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents';
   sidebarCollapsed: boolean;
@@ -98,7 +116,14 @@ export interface RonAIState {
   createBrowserSession: () => Promise<string>;
   closeBrowserSession: (sessionId: string) => void;
   updateBrowserSession: (sessionId: string, data: Partial<Omit<BrowserSession, 'sessionId'>>) => void;
+
+  // Phase 5 Actions
+  addCodeFile: (file: CodeFile) => void;
+  updateCodeFile: (path: string, newContent: string) => void;
+  setPubMedArticles: (articles: PubMedArticle[]) => void;
+  updateDeepResearchStream: (content: string) => void;
   deployToVercel: (projectId: string) => Promise<void>;
+
   // New actions to manage UI state
   setActiveView: (view: RonAIState['activeView']) => void;
   toggleSidebar: () => void;
@@ -119,6 +144,13 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
   toolOutputs: [],
   codeFiles: [],
   browserSessions: [],
+
+  // Phase 5 Initial State
+  deploymentStatus: 'idle',
+  deploymentMessage: '',
+  pubmedArticles: [],
+  deepResearchStreamContent: '',
+
   activeView: 'chat',
   sidebarCollapsed: false,
   theme: 'dark',
@@ -216,11 +248,52 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
     }));
   },
 
+  // --- Phase 5 Actions Implementation ---
+  addCodeFile: (file) => {
+    set((state) => ({
+      codeFiles: [...state.codeFiles.filter(f => f.path !== file.path), file],
+    }));
+  },
+
+  updateCodeFile: (path, newContent) => {
+    set((state) => ({
+      codeFiles: state.codeFiles.map((file) =>
+        file.path === path ? { ...file, content: file.content + newContent } : file
+      ),
+    }));
+  },
+
+  setPubMedArticles: (articles) => {
+    set({ pubmedArticles: articles });
+  },
+
+  updateDeepResearchStream: (content) => {
+    set((state) => ({
+      deepResearchStreamContent: state.deepResearchStreamContent + content,
+    }));
+  },
+
   deployToVercel: async (projectId) => {
-    console.log(`Deploying project ${projectId} to Vercel...`);
-    // Mock async operation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    console.log(`Deployment to ${projectId} complete.`);
+    set({ deploymentStatus: 'in-progress', deploymentMessage: `Deploying ${projectId}...` });
+    try {
+      console.log(`Deploying project ${projectId} to Vercel...`);
+      // Mock async operation
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      set({ deploymentMessage: 'Build in progress...' });
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      set({ deploymentMessage: 'Finalizing deployment...' });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      const isSuccess = Math.random() > 0.2;
+      if (isSuccess) {
+        set({ deploymentStatus: 'success', deploymentMessage: 'Deployment successful!' });
+      } else {
+        throw new Error('Mock deployment failure.');
+      }
+    } catch (error) {
+      console.error("Deployment failed:", error);
+      set({ deploymentStatus: 'error', deploymentMessage: 'Deployment failed. Check logs.' });
+    }
   },
 
   // UI State Actions
