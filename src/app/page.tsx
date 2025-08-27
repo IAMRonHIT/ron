@@ -5,6 +5,7 @@ import DashboardLayout from '@/components/layout/DashboardLayout';
 import AgentCardGrid from '@/components/agent-cards/AgentCardGrid';
 import ChatView from '@/components/chat/ChatView';
 import AgentEcosystemView from '@/components/agents/AgentEcosystemView';
+import BrowserView from '@/components/browser/BrowserView';
 import { useRonAIStore } from '@/lib/ron-ai-store';
 
 /**
@@ -29,8 +30,7 @@ export default function RonAIRedesignPage() {
         // Placeholder for future view
         return <div className="p-6">Code View (Coming Soon)</div>;
       case 'browser':
-        // Placeholder for future view
-        return <div className="p-6">Browser View (Coming Soon)</div>;
+        return <BrowserView />;
       default:
         // The default view is the agent grid, which we can consider the "dashboard"
         return <AgentCardGrid />;

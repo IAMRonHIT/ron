@@ -52,6 +52,8 @@ export interface BrowserSession {
   sessionId: string;
   url: string;
   status: 'active' | 'inactive';
+  title?: string;
+  screenshotUrl?: string;
 }
 
 // Configuration for spawning a new agent
@@ -94,6 +96,8 @@ export interface RonAIState {
   addAgentCommunication: (comm: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
   executeTool: (toolName: string, params: any) => void;
   createBrowserSession: () => Promise<string>;
+  closeBrowserSession: (sessionId: string) => void;
+  updateBrowserSession: (sessionId: string, data: Partial<Omit<BrowserSession, 'sessionId'>>) => void;
   deployToVercel: (projectId: string) => Promise<void>;
   // New actions to manage UI state
   setActiveView: (view: RonAIState['activeView']) => void;
@@ -187,12 +191,29 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
       sessionId,
       url: 'about:blank',
       status: 'active',
+      title: 'New Tab',
     };
     set((state) => ({
       browserSessions: [...state.browserSessions, newSession],
     }));
     console.log(`Created browser session: ${sessionId}`);
     return sessionId;
+  },
+
+  closeBrowserSession: (sessionId: string) => {
+    set((state) => ({
+      browserSessions: state.browserSessions.filter(
+        (session) => session.sessionId !== sessionId
+      ),
+    }));
+  },
+
+  updateBrowserSession: (sessionId: string, data: Partial<Omit<BrowserSession, 'sessionId'>>) => {
+    set((state) => ({
+      browserSessions: state.browserSessions.map((session) =>
+        session.sessionId === sessionId ? { ...session, ...data } : session
+      ),
+    }));
   },
 
   deployToVercel: async (projectId) => {
