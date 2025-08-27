@@ -11,5 +11,17 @@ backend/.env
 backend/*.json
 backend/aethercare-tqine-5e005e537e8f.json
 
+# Python virtual environment
+venv/
+/venv/
+*.venv
+.venv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # Certificate files
 *.pem

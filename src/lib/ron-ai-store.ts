@@ -77,8 +77,18 @@ export interface AgentConfig {
     model: string;
 }
 
+import { ConversationEvent } from './types';
+
+// Orchestration Slice
+export interface OrchestrationSlice {
+  activities: ConversationEvent[];
+  activePlan: string | null;
+  byMessageId: Record<string, ConversationEvent[]>;
+  addActivity: (activity: Omit<ConversationEvent, 'id' | 'timestamp'>) => void;
+}
+
 // The complete state and actions for the Ron AI store, as per the prompt
-export interface RonAIState {
+export interface RonAIState extends OrchestrationSlice {
   // Core Chat State
   messages: Message[];
   currentStreamingMessage: string;
@@ -102,9 +112,17 @@ export interface RonAIState {
   deepResearchStreamContent: string;
 
   // UI State
-  activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents';
+  activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents' | 'kanban' | 'calendar' | 'search' | 'tools';
   sidebarCollapsed: boolean;
   theme: 'dark' | 'light';
+  isDrawerOpen: boolean;
+  drawerView: string | null;
+  openDrawer: (view: string) => void;
+  closeDrawer: () => void;
+  deepResearchEnabled: boolean;
+  toolsEnabled: boolean;
+  toggleDeepResearch: () => void;
+  toggleTools: () => void;
 
   // Actions
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void;
@@ -131,8 +149,25 @@ export interface RonAIState {
 }
 
 // --- Zustand Store Implementation ---
+const createOrchestrationSlice = (set: any): OrchestrationSlice => ({
+  activities: [],
+  activePlan: null,
+  byMessageId: {},
+  addActivity: (activity) => {
+    const newActivity: ConversationEvent = {
+      ...activity,
+      id: uuidv4(),
+      timestamp: new Date(),
+    };
+    set((state: RonAIState) => ({
+      activities: [newActivity, ...state.activities],
+    }));
+  },
+});
+
 
 export const useRonAIStore = create<RonAIState>((set, get) => ({
+  ...createOrchestrationSlice(set),
   // Initial State
   messages: [],
   currentStreamingMessage: '',
@@ -154,6 +189,10 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
   activeView: 'chat',
   sidebarCollapsed: false,
   theme: 'dark',
+  isDrawerOpen: false,
+  drawerView: null,
+  deepResearchEnabled: false,
+  toolsEnabled: true,
 
   // Actions
   addMessage: (msg) => {
@@ -239,6 +278,10 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
       ),
     }));
   },
+  openDrawer: (view) => set({ isDrawerOpen: true, drawerView: view }),
+  closeDrawer: () => set({ isDrawerOpen: false, drawerView: null }),
+  toggleDeepResearch: () => set((state: RonAIState) => ({ deepResearchEnabled: !state.deepResearchEnabled })),
+  toggleTools: () => set((state: RonAIState) => ({ toolsEnabled: !state.toolsEnabled })),
 
   updateBrowserSession: (sessionId: string, data: Partial<Omit<BrowserSession, 'sessionId'>>) => {
     set((state) => ({

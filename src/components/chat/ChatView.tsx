@@ -2,10 +2,10 @@
 
 import React, { useEffect, useRef } from 'react';
 import { useRonAIStore } from '@/lib/ron-ai-store';
-import MessageInput from './MessageInput';
+import ChatDock from './ChatDock';
 import ChatMessage from './ChatMessage';
 import StreamingMessage from './StreamingMessage';
-import ChainOfThoughtBubble from './ChainOfThoughtBubble';
+import ReasoningChip from './ReasoningChip';
 import ToolOutputCard from '../tools/ToolOutputCard';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -28,7 +28,7 @@ const ChatView = () => {
     <div className="flex flex-col h-full bg-background">
       <ScrollArea className="flex-1 p-6">
         <div className="max-w-4xl mx-auto w-full space-y-6">
-          <ChainOfThoughtBubble />
+          <ReasoningChip />
           {toolOutputs.map((output, index) => (
             <ToolOutputCard key={index} toolOutput={output} />
           ))}
@@ -40,8 +40,8 @@ const ChatView = () => {
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
-      <div className="max-w-4xl mx-auto w-full">
-        <MessageInput />
+      <div className="w-full">
+        <ChatDock />
       </div>
     </div>
   );
