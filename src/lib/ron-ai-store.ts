@@ -63,6 +63,7 @@ export interface RonAIState {
   // Core Chat State
   messages: Message[];
   currentStreamingMessage: string;
+  currentReasoning: string;
   isProcessing: boolean;
 
   // Agent Ecosystem
@@ -83,6 +84,7 @@ export interface RonAIState {
   // Actions
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void;
   updateStreamingMessage: (content: string) => void;
+  updateReasoning: (content: string) => void;
   spawnAgent: (config: AgentConfig) => void;
   executeTool: (toolName: string, params: any) => void;
   createBrowserSession: () => Promise<string>;
@@ -99,6 +101,7 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
   // Initial State
   messages: [],
   currentStreamingMessage: '',
+  currentReasoning: '',
   isProcessing: false,
   agents: [],
   activeAgents: new Set(),
@@ -124,6 +127,10 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
 
   updateStreamingMessage: (content) => {
     set({ currentStreamingMessage: content });
+  },
+
+  updateReasoning: (content) => {
+    set({ currentReasoning: content });
   },
 
   spawnAgent: (config) => {
