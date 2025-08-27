@@ -3,8 +3,9 @@ import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
 import { Message as BaseMessage, Agent as BaseAgent } from './types';
 
-// --- New Interfaces for Phase 5 ---
+// --- New Interfaces for Phase 5 & Refactor ---
 export type DeploymentStatus = 'idle' | 'in-progress' | 'success' | 'error';
+export type DrawerContentType = 'tools' | 'code' | 'browser' | 'pubmed' | 'live-preview' | null;
 
 export interface PubMedArticle {
   id: string;
@@ -48,6 +49,7 @@ export interface AgentMessage {
 
 // Interface for the output of a tool execution
 export interface ToolOutput {
+  id: string;
   toolName: string;
   output: any;
   timestamp: Date;
@@ -102,22 +104,30 @@ export interface RonAIState {
   deepResearchStreamContent: string;
 
   // UI State
-  activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents';
+  activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents' | 'search';
   sidebarCollapsed: boolean;
   theme: 'dark' | 'light';
 
+  // Drawer State
+  isDrawerOpen: boolean;
+  drawerContentType: DrawerContentType;
+  activeDrawerId: string | null; // To link a chip to a specific item in the drawer
+
   // Actions
+  openDrawer: (contentType: DrawerContentType, activeId?: string) => void;
+  closeDrawer: () => void;
   addMessage: (msg: Omit<Message, 'id' | 'timestamp'>) => void;
   updateStreamingMessage: (content: string) => void;
   updateReasoning: (content: string) => void;
   spawnAgent: (config: AgentConfig) => void;
   addAgentCommunication: (comm: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
-  executeTool: (toolName: string, params: any) => void;
+  executeTool: (toolName: string, params: any) => string;
   createBrowserSession: () => Promise<string>;
   closeBrowserSession: (sessionId: string) => void;
   updateBrowserSession: (sessionId: string, data: Partial<Omit<BrowserSession, 'sessionId'>>) => void;
 
   // Phase 5 Actions
+  updateToolOutput: (toolId: string, newOutput: string) => void;
   addCodeFile: (file: CodeFile) => void;
   updateCodeFile: (path: string, newContent: string) => void;
   setPubMedArticles: (articles: PubMedArticle[]) => void;
@@ -151,11 +161,26 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
   pubmedArticles: [],
   deepResearchStreamContent: '',
 
+  // Drawer State
+  isDrawerOpen: false,
+  drawerContentType: null,
+  activeDrawerId: null,
+
   activeView: 'chat',
   sidebarCollapsed: false,
   theme: 'dark',
 
   // Actions
+  openDrawer: (contentType, activeId = null) => {
+    set({
+      isDrawerOpen: true,
+      drawerContentType: contentType,
+      activeDrawerId: activeId,
+    });
+  },
+  closeDrawer: () => {
+    set({ isDrawerOpen: false });
+  },
   addMessage: (msg) => {
     const newMessage: Message = {
       ...msg,
@@ -206,14 +231,25 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
   },
 
   executeTool: (toolName, params) => {
-    console.log(`Executing tool: ${toolName}`, params);
-    const output: ToolOutput = {
+    const newToolOutput: ToolOutput = {
+      id: uuidv4(),
       toolName,
-      output: `Mock output for ${toolName} with params: ${JSON.stringify(params)}`,
+      output: `Executing with params: ${JSON.stringify(params)}`,
       timestamp: new Date(),
     };
     set((state) => ({
-      toolOutputs: [...state.toolOutputs, output],
+      toolOutputs: [...state.toolOutputs, newToolOutput],
+    }));
+    return newToolOutput.id;
+  },
+
+  updateToolOutput: (toolId: string, newOutput: string) => {
+    set((state) => ({
+      toolOutputs: state.toolOutputs.map((tool) =>
+        tool.id === toolId
+          ? { ...tool, output: (tool.output || '') + newOutput }
+          : tool
+      ),
     }));
   },
 

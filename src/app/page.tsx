@@ -1,47 +1,55 @@
 'use client';
 
 import React from 'react';
-import DashboardLayout from '@/components/layout/DashboardLayout';
-import AgentCardGrid from '@/components/agent-cards/AgentCardGrid';
-import ChatView from '@/components/chat/ChatView';
-import AgentEcosystemView from '@/components/agents/AgentEcosystemView';
-import BrowserView from '@/components/browser/BrowserView';
-import CodeView from '@/components/code/CodeView';
-import ResearchView from '@/components/research/ResearchView';
+import dynamic from 'next/dynamic';
 import { useRonAIStore } from '@/lib/ron-ai-store';
+import { Loader2 } from 'lucide-react';
+import Sidebar from '@/components/layout/Sidebar';
+import OrchestrationRail from '@/components/layout/OrchestrationRail';
+import OutputDrawer from '@/components/drawer/OutputDrawer';
+
+// A generic loading component to be displayed while views are being loaded.
+const ViewLoader = () => (
+  <div className="flex items-center justify-center h-full w-full">
+    <Loader2 className="h-8 w-8 animate-spin" />
+  </div>
+);
+
+// Dynamically import the main view components to enable code splitting.
+const ChatThread = dynamic(() => import('@/components/chat/ChatThread'), { loading: () => <ViewLoader /> });
+const SearchView = dynamic(() => import('@/components/search/SearchView'), { loading: () => <ViewLoader /> });
+// Other views will be re-integrated as we rebuild them according to the new spec.
 
 /**
  * Main application page for the Ron AI Frontend Redesign.
- * This component serves as the root of the new layout, integrating the
- * dashboard structure and conditionally rendering the active view based
- * on the state from the Zustand store.
+ * This component assembles the core three-part architecture and handles view switching.
  */
 export default function RonAIRedesignPage() {
   const activeView = useRonAIStore((state) => state.activeView);
 
   const renderContent = () => {
     switch (activeView) {
+      case 'search':
+        return <SearchView />;
+      // Add cases for 'kanban', 'calendar' etc. as they are built.
       case 'chat':
-        return <ChatView />;
-      case 'agents':
-        return <AgentEcosystemView />;
-      case 'research':
-        return <ResearchView />;
-      case 'code':
-        return <CodeView />;
-      case 'browser':
-        return <BrowserView />;
       default:
-        // The default view is the agent grid, which we can consider the "dashboard"
-        return <AgentCardGrid />;
+        return <ChatThread />;
     }
   };
 
   return (
-    <main className="dark">
-      <DashboardLayout>
-        {renderContent()}
-      </DashboardLayout>
+    <main className="h-screen w-screen overflow-hidden bg-background flex">
+        <Sidebar />
+        {/* Main Content Area */}
+        <div className="flex-grow flex flex-col relative">
+            {renderContent()}
+            {/* The drawer overlays the main content area */}
+            <OutputDrawer />
+        </div>
+
+        {/* Right-hand Orchestration Rail */}
+        <OrchestrationRail />
     </main>
   );
 }

@@ -2,307 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 0%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 0%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 0%;
-    --primary: 206 100% 50%;  /* Clean blue */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 0%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 45%;
-    --accent: 199 95% 60%;  /* Cyan blue accent */
-    --accent-foreground: 0 0% 0%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 89%;
-    --input: 0 0% 89%;
-    --ring: 206 100% 50%;
-    --radius: 0.75rem;
+    /* Design Tokens from Brief - HSL format for use with Tailwind opacity modifiers */
+    --background: 0 0% 0%; /* #000000 */
+    --surface-primary: 240 2% 4%; /* #0B0B0C */
+    --surface-secondary: 225 10% 5%; /* #111216 */
+    --surface-tertiary: 220 9% 6%; /* #14161A */
+
+    --text-primary: 0 0% 98%;
+    --text-secondary: 0 0% 63%;
+
+    --border-primary-rgb: 255 255 255;
+    --border-divider-rgb: 255 255 255;
+
+    --radius-outer: 18px;
+    --radius-inner: 14px;
+    --radius-chip: 10px;
   }
 
-  .dark {
-    /* New Ron.AI Dark Aesthetic */
-    --background: 0 0% 0%; /* Pure Black */
-    --foreground: 210 40% 98%; /* White text, same as before */
-
-    /* Secondary Backgrounds */
-    --card: 0 0% 10%; /* Dark Charcoal (#1a1a1a) for cards */
-    --card-foreground: 210 40% 98%;
-    --popover: 0 0% 10%; /* Dark Charcoal for popovers */
-    --popover-foreground: 210 40% 98%;
-    --secondary: 0 0% 16%; /* Lighter Charcoal (#2a2a2a) for secondary elements */
-    --secondary-foreground: 210 40% 98%;
-
-    /* Muted Tones */
-    --muted: 0 0% 16%;
-    --muted-foreground: 215 20% 65%; /* Same as before */
-
-    /* Accent Colors */
-    --primary: 220 89% 60%; /* Subtle Blue (#3b82f6) */
-    --primary-foreground: 210 40% 98%;
-    --accent: 188 95% 43%; /* Electric Teal (#06b6d4) */
-    --accent-foreground: 0 0% 0%;
-    --accent-purple: 262 90% 66%; /* New Purple Accent (#8b5cf6) */
-
-    /* Other variables */
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 0 0% 16%; /* Border to match secondary background */
-    --input: 0 0% 12%; /* Slightly darker input background */
-    --ring: 220 89% 60%; /* Ring to match primary accent */
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  html {
+  /* Dark theme is now the default, no .dark class needed */
+  body {
+    @apply bg-background text-text-primary;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-size: 14px;
+    letter-spacing: -0.006em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-weight: 400;
-    letter-spacing: -0.006em;
-    line-height: 1.5;
-  }
-  
-  /* Proper proportions */
-  h1 { 
-    @apply text-2xl font-semibold;
-    letter-spacing: -0.019em;
-  }
-  h2 { 
-    @apply text-xl font-semibold;
-    letter-spacing: -0.017em;
-  }
-  h3 { 
-    @apply text-lg font-medium;
-    letter-spacing: -0.014em;
-  }
-  h4 { 
-    @apply text-base font-medium;
-    letter-spacing: -0.011em;
-  }
-  p { 
-    @apply text-sm;
-    line-height: 1.6;
-  }
-  
-  /* Compact spacing */
-  .card { @apply p-4; }
-  .button { @apply px-3 py-1.5 text-sm font-medium; }
+
+  h1 { @apply text-[28px] font-bold tracking-[-0.02em]; }
+  h2 { @apply text-[22px] font-bold tracking-[-0.02em]; }
+  h3 { @apply text-lg font-semibold tracking-[-0.02em]; }
 }
 
 @layer utilities {
-  /* Premium blue glow effects */
-  .text-glow {
-    text-shadow: 0 0 40px rgba(147, 197, 253, 0.5);
-  }
-  
-  .glow-card {
-    box-shadow: 
-      0 0 30px rgba(147, 197, 253, 0.1),
-      inset 0 0 30px rgba(147, 197, 253, 0.02);
-  }
-  
-  .glow-button {
-    box-shadow: 0 0 25px rgba(147, 197, 253, 0.4);
-  }
-  
-  /* Premium input styling */
-  .input-glow {
-    transition: all 0.3s ease;
-  }
-  
-  .input-glow:focus {
-    border-color: hsl(var(--primary));
-    box-shadow: 
-      0 0 0 3px rgba(147, 197, 253, 0.1),
-      0 0 25px rgba(147, 197, 253, 0.15);
-  }
-  
-  @keyframes shimmer {
-    0% {
-      background-position: -1000px 0;
-    }
-    100% {
-      background-position: 1000px 0;
-    }
-  }
-  
-  @keyframes float {
-    0%, 100% {
-      transform: translateY(0px);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
-  }
-  
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
-  }
-  
-  .shimmer-effect {
-    background: linear-gradient(
-      105deg,
-      transparent 40%,
-      hsl(var(--primary) / 0.1) 50%,
-      transparent 60%
-    );
-    background-size: 1000px 100%;
-    animation: shimmer 2s infinite;
-  }
-  
-  .glass-morphism {
-    background: hsl(var(--card) / 0.5);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid hsl(var(--border) / 0.2);
-  }
-  
-  .premium-shadow {
-    box-shadow: 
-      0 4px 6px -1px hsl(var(--primary) / 0.1),
-      0 2px 4px -2px hsl(var(--primary) / 0.1),
-      0 20px 25px -5px hsl(var(--primary) / 0.05),
-      0 8px 10px -6px hsl(var(--primary) / 0.05);
-  }
-  
-  .hover-lift {
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
-  
-  .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 
-      0 10px 20px -5px hsl(var(--primary) / 0.2),
-      0 20px 40px -10px hsl(var(--primary) / 0.1);
-  }
-  
-  .gradient-border {
-    position: relative;
-    background: linear-gradient(var(--background), var(--background)) padding-box,
-                linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent))) border-box;
-    border: 2px solid transparent;
-  }
-  
-  /* Premium scrollbar styling */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  
-  ::-webkit-scrollbar-track {
-    background: hsl(var(--background));
-    border-radius: 4px;
-  }
-  
-  ::-webkit-scrollbar-thumb {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--primary) / 0.5),
-      hsl(var(--accent) / 0.5)
-    );
-    border-radius: 4px;
-  }
-  
-  ::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(
-      180deg,
-      hsl(var(--primary) / 0.7),
-      hsl(var(--accent) / 0.7)
-    );
-  }
-  
-  /* Premium selection colors */
-  ::selection {
-    background: hsl(var(--primary) / 0.3);
-    color: hsl(var(--foreground));
-  }
-  
-  ::-moz-selection {
-    background: hsl(var(--primary) / 0.3);
-    color: hsl(var(--foreground));
+  .text-gradient-accent {
+    @apply bg-gradient-to-r from-[#3B82F6] via-[#8B5CF6] to-[#06B6D4] bg-clip-text text-transparent;
   }
 
-  .animate-fade-in-delay {
-    animation: fadeIn 0.8s ease-out 0.3s both;
+  .glow-sm {
+    box-shadow: 0 0 16px rgba(59,130,246,0.18), inset 0 0 1px rgba(255,255,255,0.06);
   }
 
-  .animate-slide-up {
-    animation: slideUp 0.6s ease-out;
+  .glow-md {
+    box-shadow: 0 0 24px rgba(59,130,246,0.22), inset 0 0 1px rgba(255,255,255,0.06);
   }
 
-  .animate-slide-up-footer {
-    animation: slideUpFooter 0.8s ease-out;
+  .glass-panel {
+    background-color: rgba(17, 18, 22, 0.5); /* surface-secondary with opacity */
+    backdrop-filter: blur(24px);
+    border: 1px solid rgba(var(--border-primary-rgb), 0.06);
   }
 
-  /* Ensure proper scrolling for message containers */
-  .messages-container {
-    height: 100vh;
-    overflow-y: auto;
-    scroll-behavior: smooth;
-  }
-  
-  .streaming-text {
-    position: relative;
-  }
-  
-  .streaming-text::after {
-    content: '▊';
-    animation: blink 1s infinite;
-    color: hsl(var(--primary));
-    font-weight: normal;
-  }
-  
-  @keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
-  }
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes slideUpFooter {
-  from {
-    opacity: 0;
-    transform: translateY(100px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  .ring-teal {
+      --tw-ring-color: #06b6d4;
   }
 }

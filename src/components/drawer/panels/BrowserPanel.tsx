@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRonAIStore } from '@/lib/ron-ai-store';
-import { useBrowserManager } from './BrowserSessionManager';
+import { useBrowserManager } from '../BrowserSessionManager';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from '@/components/ui/button';
 import { PlusCircle, X, RefreshCw, Globe } from 'lucide-react';

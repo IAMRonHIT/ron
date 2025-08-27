@@ -3,7 +3,7 @@
 import React from 'react';
 import { useRonAIStore, RonAIState } from '@/lib/ron-ai-store';
 import { cn } from '@/lib/utils';
-import { MessageCircle, BrainCircuit, FlaskConical, Code, Globe } from 'lucide-react';
+import { MessageCircle, BrainCircuit, FlaskConical, Code, Globe, Search } from 'lucide-react';
 
 const Sidebar = () => {
   const { activeView, setActiveView } = useRonAIStore((state) => ({
@@ -13,6 +13,7 @@ const Sidebar = () => {
 
   const navItems: { view: RonAIState['activeView']; label: string; icon: React.ElementType }[] = [
     { view: 'chat', label: 'Chat', icon: MessageCircle },
+    { view: 'search', label: 'Search', icon: Search },
     { view: 'agents', label: 'Agents', icon: BrainCircuit },
     { view: 'research', label: 'Research', icon: FlaskConical },
     { view: 'code', label: 'Code', icon: Code },
