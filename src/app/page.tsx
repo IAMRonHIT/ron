@@ -4,6 +4,7 @@ import React from 'react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import AgentCardGrid from '@/components/agent-cards/AgentCardGrid';
 import ChatView from '@/components/chat/ChatView';
+import AgentEcosystemView from '@/components/agents/AgentEcosystemView';
 import { useRonAIStore } from '@/lib/ron-ai-store';
 
 /**
@@ -19,6 +20,8 @@ export default function RonAIRedesignPage() {
     switch (activeView) {
       case 'chat':
         return <ChatView />;
+      case 'agents':
+        return <AgentEcosystemView />;
       case 'research':
         // Placeholder for future view
         return <div className="p-6">Research View (Coming Soon)</div>;

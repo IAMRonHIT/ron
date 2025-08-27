@@ -16,7 +16,11 @@ export interface Agent {
   id: string;
   name: string;
   specialization: string;
-  status: 'idle' | 'working' | 'finished';
+  status: 'idle' | 'working' | 'finished' | 'error';
+  // New fields for Phase 3
+  model: string;
+  statusHeader: string; // e.g., "Analyzing patient data"
+  conversationHistory: Message[];
   // Re-using fields from BaseAgent for consistency
   type: BaseAgent['type'];
   description: BaseAgent['description'];
@@ -56,6 +60,7 @@ export interface AgentConfig {
     specialization: string;
     type: BaseAgent['type'];
     description: string;
+    model: string;
 }
 
 // The complete state and actions for the Ron AI store, as per the prompt
@@ -77,7 +82,7 @@ export interface RonAIState {
   browserSessions: BrowserSession[];
 
   // UI State
-  activeView: 'chat' | 'research' | 'code' | 'browser';
+  activeView: 'chat' | 'research' | 'code' | 'browser' | 'agents';
   sidebarCollapsed: boolean;
   theme: 'dark' | 'light';
 
@@ -86,6 +91,7 @@ export interface RonAIState {
   updateStreamingMessage: (content: string) => void;
   updateReasoning: (content: string) => void;
   spawnAgent: (config: AgentConfig) => void;
+  addAgentCommunication: (comm: Omit<AgentMessage, 'id' | 'timestamp'>) => void;
   executeTool: (toolName: string, params: any) => void;
   createBrowserSession: () => Promise<string>;
   deployToVercel: (projectId: string) => Promise<void>;
@@ -141,10 +147,25 @@ export const useRonAIStore = create<RonAIState>((set, get) => ({
       type: config.type,
       description: config.description,
       status: 'idle',
+      // New fields for Phase 3
+      model: config.model,
+      statusHeader: 'Awaiting tasks',
+      conversationHistory: [],
     };
     set((state) => ({
       agents: [...state.agents, newAgent],
       activeAgents: new Set(state.activeAgents).add(newAgent.id),
+    }));
+  },
+
+  addAgentCommunication: (comm) => {
+    const newComm: AgentMessage = {
+      ...comm,
+      id: uuidv4(),
+      timestamp: new Date(),
+    };
+    set((state) => ({
+      agentCommunications: [...state.agentCommunications, newComm],
     }));
   },
 
