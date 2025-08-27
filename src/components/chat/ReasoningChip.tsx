@@ -33,7 +33,7 @@ const ReasoningChip = () => {
         >
           <CollapsibleTrigger className="w-full p-2 flex justify-between items-center cursor-pointer group">
             <div className="flex items-center gap-2">
-                <BrainCircuit className="h-4 w-4 text-brand-accent-middle" />
+                <BrainCircuit className="h-4 w-4 text-brand-accent-start" />
                 <span className="text-xs font-medium text-muted-foreground">Reasoning</span>
             </div>
             <div className="flex items-center">

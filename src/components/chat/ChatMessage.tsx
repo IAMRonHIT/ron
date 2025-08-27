@@ -58,13 +58,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             <ActionChip icon={Beaker} label="Research" status="error" drawerView="Research" />
         </div>
       )}
-
-      {/* User Avatar */}
-      {isUser && (
-        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-          <User className="w-5 h-5 text-muted-foreground" />
-        </div>
-      )}
     </div>
   );
 };
